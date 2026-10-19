@@ -5,19 +5,19 @@
 ## الرابط الأساسي
 
 ```text
-https://alrafee-micro.vercel.app
+https://alrafeerouter.zone.id
 ```
 
 ## فحص الخادم
 
 ```bash
-curl https://alrafee-micro.vercel.app/health
+curl https://alrafeerouter.zone.id/health
 ```
 
 ## إنشاء حساب
 
 ```bash
-curl -X POST https://alrafee-micro.vercel.app/api/v1/auth/register \\
+curl -X POST https://alrafeerouter.zone.id/api/v1/auth/register \\
   -H "Content-Type: application/json" \\
   -d '{'"networkName":"شبكتي","adminFullName":"اسم المدير","username":"admin","email":"admin@example.com","password":"Password123","phone":"+249115715672"}'
 ```
@@ -25,7 +25,7 @@ curl -X POST https://alrafee-micro.vercel.app/api/v1/auth/register \\
 ## تسجيل الدخول
 
 ```bash
-curl -X POST https://alrafee-micro.vercel.app/api/v1/auth/login \\
+curl -X POST https://alrafeerouter.zone.id/api/v1/auth/login \\
   -H "Content-Type: application/json" \\
   -d '{'"identifier":"admin","password":"Password123"}'
 ```
@@ -37,7 +37,7 @@ curl -X POST https://alrafee-micro.vercel.app/api/v1/auth/login \\
 أرسل التوكن مع أي endpoint محمي داخل ترويسة `Authorization`:
 
 ```bash
-curl https://alrafee-micro.vercel.app/api/v1/packages \\
+curl https://alrafeerouter.zone.id/api/v1/packages \\
   -H "Authorization: Bearer YOUR_TOKEN" \\
   -H "Content-Type: application/json"
 ```
@@ -45,7 +45,7 @@ curl https://alrafee-micro.vercel.app/api/v1/packages \\
 ## JavaScript
 
 ```javascript
-const API_URL = "https://alrafee-micro.vercel.app";
+const API_URL = "https://alrafeerouter.zone.id";
 
 const loginResponse = await fetch(`${API_URL}/api/v1/auth/login`, {
   method: "POST",
