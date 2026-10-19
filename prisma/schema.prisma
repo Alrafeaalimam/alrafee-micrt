@@ -1,0 +1,617 @@
+// ============================================================================
+// Platform: Commercial MikroTik Network & HotSpot Card Management System
+// File: schema.prisma (Architecture Baseline - Clean Production Draft)
+// Engine: PostgreSQL
+// Multi-Tenancy Strategy: Strict Discriminator (tenantId) + Compound Constraints
+// ============================================================================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider   = "prisma-client-js"
+  engineType = "wasm"
+}
+
+// ----------------------------------------------------------------------------
+// ENUMS (المجالات المعيارية للنظام)
+// ----------------------------------------------------------------------------
+
+enum UserRole {
+  SUPER_ADMIN    // مدير المنصة العام
+  TENANT_ADMIN   // صاحب الشبكة / مدير المستأجر
+  OPERATOR       // مهندس شبكة / مشغل
+  RESELLER       // وكيل بيع كروت
+  ACCOUNTANT     // محاسب للتقارير والمبيعات
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  EXPIRED
+  SUSPENDED
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum LicenseCodeStatus {
+  UNUSED
+  USED
+  REVOKED
+}
+
+enum NotificationType {
+  MANUAL
+  SYSTEM
+}
+
+enum RouterStatus {
+  ONLINE         // متصل ومستجيب
+  OFFLINE        // غير متصل
+  UNREACHABLE    // تعذر الوصول عبر المسار الشبكي
+  CONNECTING     // جاري المحاولة وإعادة الاتصال
+  ERROR          // خطأ مصادقة أو إصدار غير مدعوم
+  MAINTENANCE    // وضع صيانة
+}
+
+enum ConnectionMethod {
+  ROUTEROS_API_SSL    // منفذ 8729 TLS (Recommended)
+  ROUTEROS_API_PLAIN  // منفذ 8728 (LAN Only)
+  REST_API_HTTPS      // RouterOS v7+
+  SSH_TUNNEL          // نفق آمن للراوترات خلف NAT
+}
+
+enum CardStatus {
+  GENERATED   // تم إنشاء الكود في قاعدة البيانات ولم يطرح للبيع
+  AVAILABLE   // معروض للبيع وجاهز في المخزن
+  SOLD        // تم بيعه عبر معاملة بيع رسمية
+  ACTIVE      // سجل أول جلسة اتصال بنجاح على الراوتر
+  EXPIRED     // انتهت صلاحيته (استهلاك زمن أو حصة بيانات)
+  CANCELLED   // ملغى يدوياً
+  SUSPENDED   // موقوف مؤقتاً
+  REVOKED     // مسحوب ومحذوف من الراوتر
+}
+
+enum PaymentMethod {
+  CASH           // نقداً
+  BANK_TRANSFER  // تحويل بنكي (بنكك / فوري / حساب بنكي)
+  MOBILE_MONEY   // محافظ إلكترونية
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  CONNECT
+  DISCONNECT
+  PROVISION_USER     // تصدير مستخدم إلى MikroTik HotSpot
+  REVOKE_USER        // إزالة مستخدم من الراوتر
+  DISCONNECT_SESSION // فصل جلسة مستخدم نشطة
+  GENERATE_BATCH     // توليد دفعة كروت
+  SELL_CARDS         // إتمام معاملة بيع كروت
+  ROUTER_BACKUP      // نسخ احتياطي
+  CONFIG_CHANGE      // تعديل إعدادات بالراوتر
+}
+
+enum AuditResult {
+  SUCCESS
+  FAILURE
+  WARNING
+}
+
+// ----------------------------------------------------------------------------
+// 1. TENANTS & USERS (المستأجرين والمشغلين)
+// ----------------------------------------------------------------------------
+
+model Tenant {
+  id              String       @id @default(uuid())
+  name            String       // اسم الشبكة / الشركة
+  slug            String       @unique // معرّف فريد للرابط
+  contactEmail    String?
+  contactPhone    String?
+  currency           String             @default("SDG") // العملة الافتراضية
+  status             UserStatus         @default(ACTIVE)
+  subscriptionStatus SubscriptionStatus @default(TRIAL)
+  trialEndsAt        DateTime           @default(dbgenerated("(now() + '7 days'::interval)"))
+  subscriptionEndsAt DateTime?
+  planName           String?
+  maxRoutersLimit    Int                @default(5)     // سقف الأجهزة حسب الاشتراك
+  approvalStatus     ApprovalStatus     @default(PENDING)
+  previousSubscriptionStatus SubscriptionStatus?
+  isDeleted          Boolean            @default(false)
+  deletedAt          DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  // العلاقات
+  users           User[]
+  routers         Router[]
+  packages        Package[]
+  cardBatches     CardBatch[]
+  cards           Card[]
+  sessions        Session[]
+  sales           Sale[]
+  auditLogs       AuditLog[]
+  licenseCodes    LicenseCode[]
+  notifications   Notification[]
+
+  @@index([status])
+  @@index([approvalStatus])
+  @@index([isDeleted])
+  @@map("tenants")
+}
+
+model User {
+  id              String       @id @default(uuid())
+  tenantId        String       // عزل المستأجر
+  username        String       // اسم الدخول
+  email           String?
+  passwordHash    String       // Argon2id / bcrypt
+  fullName        String       // اسم الموظف
+  phone           String?
+  role            UserRole     @default(OPERATOR)
+  status          UserStatus   @default(ACTIVE)
+  lastLoginAt     DateTime?
+  lastLoginIp     String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  // العلاقات
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBatches  CardBatch[]  @relation("BatchCreator")
+  sales           Sale[]       @relation("UserSales")
+  auditLogs       AuditLog[]
+  passwordResetOtps PasswordResetOtp[]
+  notificationReads NotificationRead[]
+  trustedDevices    TrustedDevice[]
+  loginOtps         LoginOtp[]
+
+  @@unique([tenantId, username])
+  @@unique([tenantId, email])
+  @@index([tenantId, role])
+  @@map("users")
+}
+
+// ----------------------------------------------------------------------------
+// 2. ROUTERS & ENCRYPTED CREDENTIALS (أجهزة الراوتر وبيانات الاعتماد المشفرة)
+// ----------------------------------------------------------------------------
+
+model Router {
+  id                 String           @id @default(uuid())
+  tenantId           String           // عزل المستأجر
+  name               String           // اسم تعريفي (مثال: راوتر البرج الرئيسي - RB4011)
+  host               String           // عنوان IP أو دومين DDNS
+  apiPort            Int              @default(8729) // منفذ RouterOS API
+  connectionMethod   ConnectionMethod @default(ROUTEROS_API_SSL)
+  status             RouterStatus     @default(OFFLINE)
+  
+  // مواصفات الجهاز الحية (تُحدّث آلياً عبر Health Check)
+  routerOsVersion    String?
+  boardModel         String?
+  serialNumber       String?
+  cpuLoadPercentage  Int?
+  freeMemoryBytes    BigInt?
+  totalMemoryBytes   BigInt?
+  uptimeSeconds      BigInt?
+  
+  // حالة الاتصال والمراقبة
+  lastSeenAt         DateTime?
+  lastHealthCheckAt  DateTime?
+  lastErrorMessage   String?
+  
+  backupEnabled      Boolean          @default(true)
+  metadata           Json?            // حقول مخصصة
+  
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  // العلاقات
+  tenant             Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  credentials        RouterCredentials? // علاقة 1-إلى-1 مفصولة تماماً لحماية الأسرار
+  cards              Card[]
+  sessions           Session[]
+  auditLogs          AuditLog[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, status])
+  @@map("routers")
+}
+
+model RouterCredentials {
+  id                  String    @id @default(uuid())
+  routerId            String    @unique
+  
+  // بيانات الاعتماد - مشفرة بالكامل عبر AES-256-GCM بمفتاح Master خارجي
+  username            String
+  encryptedPassword   String
+  encryptionIv        String
+  encryptionTag       String
+  keyVersion          Int       @default(1)
+  
+  certificateAuth     Boolean   @default(false)
+  encryptedPrivateKey String?
+  
+  updatedAt           DateTime  @updatedAt
+
+  // العلاقات
+  router              Router    @relation(fields: [routerId], references: [id], onDelete: Cascade)
+
+  @@map("router_credentials")
+}
+
+// ----------------------------------------------------------------------------
+// 3. PACKAGES (باقات الإنترنت المستقلة عن الكروت)
+// ----------------------------------------------------------------------------
+
+model Package {
+  id                    String      @id @default(uuid())
+  tenantId              String      // عزل المستأجر
+  name                  String      // اسم الباقة
+  code                  String      // كود مختصر
+  
+  // قيود السرعة
+  downloadSpeedLimit    String      // مثال: "5M"
+  uploadSpeedLimit      String      // مثال: "2M"
+  
+  // قيود الزمن والصلاحية
+  durationMinutes       Int         // مدة الاستخدام الفعلي بالدقائق
+  validityDays          Int         // أيام الصلاحية بعد أول تشغيل
+  
+  // سقف البيانات
+  dataLimitBytes        BigInt      @default(0) // 0 = غير محدود
+  
+  price                 Decimal     @db.Decimal(10, 2)
+  currency              String      @default("SDG")
+  simultaneousSessions  Int         @default(1)
+  
+  // التطابق مع MikroTik HotSpot Profile
+  hotspotProfileName    String
+  
+  isActive              Boolean     @default(true)
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+
+  // العلاقات
+  tenant                Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cardBatches           CardBatch[]
+  cards                 Card[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, isActive])
+  @@map("packages")
+}
+
+// ----------------------------------------------------------------------------
+// 4. CARD BATCHES & CARDS (محرك مجموعات الكروت والكرت)
+// ----------------------------------------------------------------------------
+
+model CardBatch {
+  id              String       @id @default(uuid())
+  tenantId        String       // عزل المستأجر
+  packageId       String       // الباقة المربوطة
+  createdById     String       // منشئ الدفعة
+  
+  batchNumber     String       // كود الدفعة
+  name            String       // وصف تعريفي
+  quantity        Int          // عدد الكروت
+  
+  prefix          String?      // بادئة اسم المستخدم
+  userLength      Int          @default(6)
+  passwordLength  Int          @default(4)
+  
+  unitPrice       Decimal      @db.Decimal(10, 2)
+  totalPrice      Decimal      @db.Decimal(12, 2)
+  
+  isExported      Boolean      @default(false)
+  exportedAt      DateTime?
+  
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  // العلاقات
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  package         Package      @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  createdBy       User         @relation("BatchCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  cards           Card[]
+
+  @@unique([tenantId, batchNumber])
+  @@index([tenantId, packageId])
+  @@map("card_batches")
+}
+
+model Card {
+  id                  String       @id @default(uuid())
+  tenantId            String       // عزل المستأجر
+  batchId             String       // الدفعة التابع لها
+  packageId           String       // الباقة
+  routerId            String?      // اختياري: تخصيص الكرت لراوتر محدد
+  
+  // بيانات دخول هوتسبوت MikroTik
+  username            String
+  password            String
+  
+  // آلة حالة الكرت الصارمة
+  status              CardStatus   @default(GENERATED)
+  price               Decimal      @db.Decimal(10, 2)
+  
+  // تتبع الاستهلاك التراكمي
+  firstLoginAt        DateTime?
+  expiresAt           DateTime?
+  totalUsedSeconds    BigInt       @default(0)
+  totalBytesIn        BigInt       @default(0)
+  totalBytesOut       BigInt       @default(0)
+  
+  // قفل الـ MAC
+  boundMacAddress     String?
+  
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  // العلاقات
+  tenant              Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  batch               CardBatch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  package             Package      @relation(fields: [packageId], references: [id], onDelete: Restrict)
+  router              Router?      @relation(fields: [routerId], references: [id], onDelete: SetNull)
+  sessions            Session[]    // سجل الجلسات الفردية المنفصل
+  saleItem            SaleItem?    // معاملة البيع (1-إلى-1 فريدة، الكرت لا يباع إلا مرة واحدة)
+
+  @@unique([tenantId, username])
+  @@index([tenantId, status])
+  @@index([tenantId, batchId])
+  @@index([tenantId, routerId])
+  @@index([tenantId, expiresAt])
+  @@map("cards")
+}
+
+// ----------------------------------------------------------------------------
+// 5. SESSIONS (جلسات الاتصال الفردية للمتصلين الآن والتتبع التاريخي)
+// ----------------------------------------------------------------------------
+
+model Session {
+  id                  String       @id @default(uuid())
+  tenantId            String       // عزل المستأجر
+  cardId              String       // الكرت المستخدم
+  routerId            String       // الراوتر الذي تمت الجلسة عليه
+  
+  startedAt           DateTime     // وقت بدء الجلسة
+  endedAt             DateTime?    // وقت انتهاء الجلسة (Null تعني متصل حالياً)
+  
+  ipAddress           String?      // عنوان IP المعطى للجهاز من الهوتسبوت
+  macAddress          String?      // عنوان MAC لجهاز العميل
+  
+  bytesIn             BigInt       @default(0) // حجم التحميل خلال هذه الجلسة
+  bytesOut            BigInt       @default(0) // حجم الرفع خلال هذه الجلسة
+  
+  isActive            Boolean      @default(true) // علامة الجلسة النشطة حالياً
+  createdAt           DateTime     @default(now())
+
+  // العلاقات
+  tenant              Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  card                Card         @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  router              Router       @relation(fields: [routerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, isActive])
+  @@index([cardId])
+  @@index([routerId])
+  @@map("sessions")
+}
+
+// ----------------------------------------------------------------------------
+// 6. SALES & SALE ITEMS (نظام فواتير ومعاملات بيع الكروت المستقل)
+// ----------------------------------------------------------------------------
+
+model Sale {
+  id                  String         @id @default(uuid())
+  tenantId            String         // عزل المستأجر
+  soldById            String         // المستخدم / الوكيل البائع
+  
+  totalAmount         Decimal        @db.Decimal(12, 2) // إجمالي الفاتورة
+  paymentMethod       PaymentMethod  @default(CASH)     // طريقة الدفع
+  createdAt           DateTime       @default(now())
+
+  // العلاقات
+  tenant              Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  soldBy              User           @relation("UserSales", fields: [soldById], references: [id], onDelete: Restrict)
+  items               SaleItem[]     // عناصر البيع (الكروت المباعة في هذه المعاملة)
+
+  @@index([tenantId, createdAt])
+  @@map("sales")
+}
+
+model SaleItem {
+  id                  String       @id @default(uuid())
+  saleId              String       // فاتورة البيع
+  cardId              String       @unique // كرت واحد فقط لكل بند (يمنع بيع الكرت مرتين)
+  unitPrice           Decimal      @db.Decimal(10, 2) // السعر الفعلي المباع به الكرت
+
+  // العلاقات
+  sale                Sale         @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  card                Card         @relation(fields: [cardId], references: [id], onDelete: Restrict)
+
+  @@index([saleId])
+  @@map("sale_items")
+}
+
+// ----------------------------------------------------------------------------
+// 7. AUDIT LOGS (سجل التدقيق الأمني والعمليات الحساسة)
+// ----------------------------------------------------------------------------
+
+model AuditLog {
+  id                  String       @id @default(uuid())
+  tenantId            String       // عزل المستأجر
+  userId              String?      // الموظف المنفذ (Null في حال System Job)
+  routerId            String?      // الراوتر المتأثر
+  
+  action              AuditAction  // نوع العملية
+  entityType          String       // اسم الكيان ("Router", "Card", "Sale", etc.)
+  entityId            String?      // معرّف الكيان
+  
+  description         String       // شرح العملية
+  ipAddress           String?
+  userAgent           String?
+  
+  changesBefore       Json?        // الحالة السابقة
+  changesAfter        Json?        // الحالة الجديدة
+  metadata            Json?        // بيانات تشخيصية
+  
+  result              AuditResult  @default(SUCCESS)
+  failureReason       String?
+  
+  createdAt           DateTime     @default(now())
+
+  // العلاقات
+  tenant              Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user                User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  router              Router?      @relation(fields: [routerId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, action])
+  @@index([tenantId, entityType, entityId])
+  @@map("audit_logs")
+}
+
+// ----------------------------------------------------------------------------
+// 8. LICENSE CODES (أكواد التراخيص لتفعيل وتمديد الاشتراكات)
+// ----------------------------------------------------------------------------
+
+model LicenseCode {
+  id              String            @id @default(uuid())
+  code            String            @unique
+  planName        String
+  durationDays    Int
+  maxRoutersLimit Int
+  status          LicenseCodeStatus @default(UNUSED)
+  createdByUserId String
+  usedByTenantId  String?
+  usedAt          DateTime?
+  createdAt       DateTime          @default(now())
+
+  usedByTenant    Tenant?           @relation(fields: [usedByTenantId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([code])
+  @@index([usedByTenantId])
+  @@map("license_codes")
+}
+
+// ----------------------------------------------------------------------------
+// 9. PASSWORD RESET OTPS (أكواد التحقق لإعادة تعيين كلمة المرور عبر البريد)
+// ----------------------------------------------------------------------------
+
+model PasswordResetOtp {
+  id        String   @id @default(uuid())
+  userId    String
+  otpHash   String   // Hash only (bcrypt or sha256)
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  // العلاقات
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, used, expiresAt])
+  @@map("password_reset_otps")
+}
+
+// ----------------------------------------------------------------------------
+// 10. PLATFORM SETTINGS (الإعدادات العامة وديناميكية المنصة)
+// ----------------------------------------------------------------------------
+
+model PlatformSettings {
+  id              String   @id @default(uuid())
+  supportEmail    String
+  whatsappNumbers String[]
+  primaryColorHex String?
+  accentColorHex  String?
+  appName         String   @default("Jalsah")
+  updatedAt       DateTime @updatedAt
+
+  @@map("platform_settings")
+}
+
+// ----------------------------------------------------------------------------
+// 11. NOTIFICATIONS (نظام الإشعارات اليدوي والتلقائي)
+// ----------------------------------------------------------------------------
+
+model Notification {
+  id        String           @id @default(uuid())
+  tenantId  String?          // null يعني بث لجميع الشركات
+  title     String
+  body      String
+  type      NotificationType @default(MANUAL)
+  createdAt DateTime         @default(now())
+
+  // العلاقات
+  tenant    Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  reads     NotificationRead[]
+
+  @@index([tenantId, createdAt])
+  @@index([type])
+  @@map("notifications")
+}
+
+model NotificationRead {
+  id             String       @id @default(uuid())
+  notificationId String
+  userId         String
+  readAt         DateTime     @default(now())
+
+  // العلاقات
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([notificationId, userId])
+  @@index([userId, readAt])
+  @@map("notification_reads")
+}
+
+// ----------------------------------------------------------------------------
+// 12. TRUSTED DEVICES & LOGIN OTPS (التحقق من الأجهزة الجديدة عبر OTP)
+// ----------------------------------------------------------------------------
+
+model TrustedDevice {
+  id                String   @id @default(uuid())
+  userId            String
+  deviceFingerprint String
+  deviceLabel       String?
+  lastUsedAt        DateTime @default(now())
+  createdAt         DateTime @default(now())
+
+  // العلاقات
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceFingerprint])
+  @@index([userId])
+  @@map("trusted_devices")
+}
+
+model LoginOtp {
+  id        String   @id @default(uuid())
+  userId    String
+  otpHash   String   // Hash only (bcrypt)
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  // العلاقات
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, used, expiresAt])
+  @@map("login_otps")
+}
+
+

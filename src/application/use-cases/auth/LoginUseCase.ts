@@ -1,0 +1,228 @@
+// ============================================================================
+// Platform: Commercial MikroTik Network & HotSpot Card Management System
+// File: src/application/use-cases/auth/LoginUseCase.ts
+// Application Use Case: User Authentication & JWT Issuance (Rule 14, Rule 19)
+// ============================================================================
+
+import crypto from 'node:crypto';
+import bcrypt from 'bcryptjs';
+import { IUserRepository } from '../../interfaces/IUserRepository.js';
+import { IAuditLogger } from '../../interfaces/IAuditLogger.js';
+import { verifyPassword } from '../../../infrastructure/security/password.js';
+import { signToken, signTempToken } from '../../../infrastructure/security/jwt.js';
+import { PrismaClient } from '@prisma/client/wasm.js';
+import { prisma as defaultPrisma } from '../../../infrastructure/database/prisma.js';
+import { IEmailService, defaultEmailService } from '../../../infrastructure/email/EmailService.js';
+import { InvalidCredentialsException } from '../../../domain/exceptions/InvalidCredentialsException.js';
+import { InactiveUserException } from '../../../domain/exceptions/InactiveUserException.js';
+import { PendingApprovalException } from '../../../domain/exceptions/PendingApprovalException.js';
+
+export interface LoginInput {
+  identifier?: string | undefined;
+  username?: string | undefined;
+  password: string;
+  ip?: string | undefined;
+  deviceFingerprint?: string | undefined;
+  deviceLabel?: string | undefined;
+}
+
+export interface LoginOutput {
+  token?: string | undefined;
+  user?: {
+    id: string;
+    username: string;
+    fullName: string;
+    email?: string | null | undefined;
+    role: string;
+    tenantId: string;
+    networkName?: string | undefined;
+  } | undefined;
+  requiresDeviceVerification?: boolean | undefined;
+  tempToken?: string | undefined;
+  emailMasked?: string | undefined;
+  message?: string | undefined;
+}
+
+export class LoginUseCase {
+  constructor(
+    private readonly userRepository: IUserRepository,
+    private readonly auditLogger?: IAuditLogger,
+    private readonly prisma: PrismaClient = defaultPrisma,
+    private readonly emailService: IEmailService = defaultEmailService
+  ) {}
+
+  async execute(input: LoginInput): Promise<LoginOutput> {
+    const rawIdentifier = input.identifier || input.username;
+    const trimmedIdentifier = rawIdentifier?.trim();
+    if (!trimmedIdentifier || !input.password) {
+      throw new InvalidCredentialsException('بيانات الدخول غير صحيحة');
+    }
+
+    const user = typeof this.userRepository.findByIdentifier === 'function'
+      ? await this.userRepository.findByIdentifier(trimmedIdentifier)
+      : await this.userRepository.findByUsername(trimmedIdentifier);
+
+    if (!user) {
+      throw new InvalidCredentialsException('بيانات الدخول غير صحيحة');
+    }
+
+    if (user.status === 'INACTIVE' || user.status !== 'ACTIVE') {
+      if (this.auditLogger) {
+        await this.auditLogger.log(
+          user.tenantId,
+          user.id,
+          'LOGIN',
+          'User',
+          user.id,
+          `Login attempt for inactive user "${user.username}"`,
+          'FAILURE'
+        );
+      }
+      throw new InactiveUserException('هذا الحساب معطل، يرجى التواصل مع مسؤول النظام');
+    }
+
+    // Tenant-level approval, deletion, and suspension enforcement
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: user.tenantId },
+    });
+
+    if (tenant) {
+      if (tenant.isDeleted) {
+        throw new InactiveUserException('هذا الحساب محذوف، يرجى التواصل مع مسؤول النظام');
+      }
+      if (tenant.approvalStatus === 'PENDING') {
+        throw new PendingApprovalException('حسابك قيد المراجعة من الإدارة');
+      }
+      if (tenant.approvalStatus === 'REJECTED') {
+        throw new InactiveUserException('تم رفض طلب تسجيل هذا الحساب من الإدارة');
+      }
+      if (tenant.subscriptionStatus === 'SUSPENDED') {
+        throw new InactiveUserException('تم إيقاف هذا الحساب مؤقتاً، يرجى التواصل مع إدارة المنصة');
+      }
+    }
+
+    const isMatch = await verifyPassword(input.password, user.passwordHash);
+    if (!isMatch) {
+      if (this.auditLogger) {
+        await this.auditLogger.log(
+          user.tenantId,
+          user.id,
+          'LOGIN',
+          'User',
+          user.id,
+          `Failed login attempt for user "${user.username}"`,
+          'FAILURE'
+        );
+      }
+      throw new InvalidCredentialsException('بيانات الدخول غير صحيحة');
+    }
+
+    // ------------------------------------------------------------------------
+    // Device Fingerprint & Trust Verification (Security Rule 14)
+    // ------------------------------------------------------------------------
+    if (input.deviceFingerprint && input.deviceFingerprint.trim().length > 0) {
+      const cleanFingerprint = input.deviceFingerprint.trim();
+      const trustedDevice = await this.prisma.trustedDevice.findUnique({
+        where: {
+          userId_deviceFingerprint: {
+            userId: user.id,
+            deviceFingerprint: cleanFingerprint,
+          },
+        },
+      });
+
+      if (trustedDevice) {
+        // Known trusted device: update lastUsedAt and proceed with normal login
+        await this.prisma.trustedDevice.update({
+          where: { id: trustedDevice.id },
+          data: {
+            lastUsedAt: new Date(),
+            deviceLabel: input.deviceLabel ?? trustedDevice.deviceLabel,
+          },
+        });
+      } else {
+        // Untrusted / new device: generate OTP and return tempToken without full JWT
+        const otpCode = crypto.randomInt(100000, 1000000).toString();
+        const otpHash = await bcrypt.hash(otpCode, 10);
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+        await this.prisma.loginOtp.create({
+          data: {
+            userId: user.id,
+            otpHash,
+            expiresAt,
+            used: false,
+          },
+        });
+
+        if (user.email) {
+          try {
+            await this.emailService.sendDeviceVerificationOtpEmail(
+              user.email,
+              otpCode,
+              input.deviceLabel
+            );
+          } catch (emailErr) {
+            console.error('[LoginUseCase] Failed to send device verification email:', emailErr);
+          }
+        }
+
+        const tempToken = signTempToken({
+          userId: user.id,
+          tenantId: user.tenantId,
+        });
+
+        const maskEmail = (email?: string | null): string => {
+          if (!email || !email.includes('@')) return 'بريدك الإلكتروني المسجل';
+          const parts = email.split('@');
+          const local = parts[0] || '';
+          const domain = parts[1] || '';
+          const maskedLocal = local.length <= 2 ? `${local}***` : `${local[0]}***${local[local.length - 1]}`;
+          return `${maskedLocal}@${domain}`;
+        };
+
+        return {
+          requiresDeviceVerification: true,
+          tempToken,
+          emailMasked: maskEmail(user.email),
+          message: 'تم إرسال كود تحقق لبريدك لأن هذا جهاز جديد',
+        };
+      }
+    }
+
+    // Update last login details
+    await this.userRepository.updateLastLogin(user.id, input.ip);
+
+    // Generate 24h JWT token containing authenticated context
+    const token = signToken({
+      userId: user.id,
+      tenantId: user.tenantId,
+      role: user.role,
+    });
+
+    if (this.auditLogger) {
+      await this.auditLogger.log(
+        user.tenantId,
+        user.id,
+        'LOGIN',
+        'User',
+        user.id,
+        `User "${user.username}" (${user.role}) logged in successfully`,
+        'SUCCESS'
+      );
+    }
+
+    return {
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        fullName: user.fullName,
+        email: user.email,
+        role: user.role,
+        tenantId: user.tenantId,
+        networkName: tenant?.name ?? user.tenantId,
+      },
+    };
+  }
+}

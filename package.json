@@ -1,0 +1,55 @@
+{
+  "name": "mikrotik_cards_backend",
+  "version": "1.0.0",
+  "description": "Commercial MikroTik Network & HotSpot Card Management Platform - Backend API",
+  "main": "dist/presentation/http/server.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/presentation/http/server.ts",
+    "build": "prisma generate && node scripts/patch-prisma-wasm.js && tsc",
+    "prestart": "node -e \"if (!require('fs').existsSync('dist/presentation/http/server.js')) require('child_process').execSync('npm run build', {stdio: 'inherit'})\"",
+    "start": "node dist/presentation/http/server.js",
+    "migrate:deploy": "prisma migrate deploy",
+    "db:seed": "node dist/infrastructure/database/seed.js",
+    "prisma:generate": "prisma generate && node scripts/patch-prisma-wasm.js",
+    "postinstall": "node scripts/patch-prisma-wasm.js",
+    "test": "tsx --test tests/**/*.test.ts"
+  },
+  "keywords": [
+    "mikrotik",
+    "routeros",
+    "hotspot",
+    "card-management",
+    "clean-architecture",
+    "fastify",
+    "prisma"
+  ],
+  "author": "Antigravity Architect",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^6.4.1",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^22.13.9",
+    "@types/nodemailer": "^8.0.2",
+    "@types/pg": "^8.23.1",
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "nodemailer": "^10.0.16",
+    "pg": "^8.23.0",
+    "prisma": "^6.4.1",
+    "typescript": "^5.7.3",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.3"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0"
+  }
+}
