@@ -4,7 +4,7 @@
 // Use Case: Mark Notification as Read for Current User
 // ============================================================================
 
-import { PrismaClient } from '@prisma/client/wasm.js';
+import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '../../../infrastructure/database/prisma.js';
 
 export interface MarkNotificationReadInput {

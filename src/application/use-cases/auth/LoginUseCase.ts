@@ -10,7 +10,7 @@ import { IUserRepository } from '../../interfaces/IUserRepository.js';
 import { IAuditLogger } from '../../interfaces/IAuditLogger.js';
 import { verifyPassword } from '../../../infrastructure/security/password.js';
 import { signToken, signTempToken } from '../../../infrastructure/security/jwt.js';
-import { PrismaClient } from '@prisma/client/wasm.js';
+import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '../../../infrastructure/database/prisma.js';
 import { IEmailService, defaultEmailService } from '../../../infrastructure/email/EmailService.js';
 import { InvalidCredentialsException } from '../../../domain/exceptions/InvalidCredentialsException.js';

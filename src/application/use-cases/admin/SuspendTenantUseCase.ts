@@ -4,7 +4,7 @@
 // Use Case: Suspend Tenant Subscription (Super Admin Only - Rule 30 No Physical Delete)
 // ============================================================================
 
-import { PrismaClient } from '@prisma/client/wasm.js';
+import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '../../../infrastructure/database/prisma.js';
 import { IAuditLogger } from '../../interfaces/IAuditLogger.js';
 import { defaultAuditLogger } from '../../../infrastructure/logging/AuditLogger.js';

@@ -4,7 +4,7 @@
 // Security / Service: Tenant Subscription & Licensing Guard
 // ============================================================================
 
-import { PrismaClient } from '@prisma/client/wasm.js';
+import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '../database/prisma.js';
 import { GenerateTrialEndingNotificationUseCase } from '../../application/use-cases/notifications/GenerateTrialEndingNotificationUseCase.js';
 

@@ -6,7 +6,7 @@
 
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
-import { PrismaClient } from '@prisma/client/wasm.js';
+import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '../../../infrastructure/database/prisma.js';
 import { IEmailService, defaultEmailService } from '../../../infrastructure/email/EmailService.js';
 

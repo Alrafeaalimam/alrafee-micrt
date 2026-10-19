@@ -5,7 +5,7 @@
 // Master Reference: Rule 16 (Adapters), Rule 19 (Multi-Tenancy)
 // ============================================================================
 
-import { PrismaClient } from '@prisma/client/wasm.js';
+import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '../prisma.js';
 import {
   ICardBatchRepository,

@@ -4,7 +4,7 @@
 // Use Case: Update User Role by Super Admin (Role Promotion & Access Control)
 // ============================================================================
 
-import { PrismaClient } from '@prisma/client/wasm.js';
+import { PrismaClient } from '@prisma/client';
 import { prisma as defaultPrisma } from '../../../infrastructure/database/prisma.js';
 import { IAuditLogger } from '../../interfaces/IAuditLogger.js';
 import { defaultAuditLogger } from '../../../infrastructure/logging/AuditLogger.js';
