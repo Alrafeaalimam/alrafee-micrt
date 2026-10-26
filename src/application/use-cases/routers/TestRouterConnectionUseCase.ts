@@ -25,8 +25,9 @@ export class TestRouterConnectionUseCase {
    */
   public async execute(
     creds: RouterCredentialsInput,
-    timeoutMs?: number
+    timeoutMs?: number,
+    signal?: AbortSignal
   ): Promise<RouterConnectorResult<RouterInfo>> {
-    return this.routerConnector.testConnection(creds, timeoutMs);
+    return this.routerConnector.testConnection(creds, timeoutMs, signal);
   }
 }

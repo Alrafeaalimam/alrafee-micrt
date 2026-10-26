@@ -11,12 +11,23 @@ import {
   RouterConnectorResult,
   RouterInfo,
   HotspotUser,
+  HotspotSession,
+  CreateHotspotUserOptions,
 } from '../../../application/interfaces/IRouterConnector.js';
 
 export class MockRouterConnector implements IRouterConnector {
-  private readonly hotspotUsersMap: Map<string, HotspotUser> = new Map([
-    ['mock_user_1', { username: 'mock_user_1', profile: 'default', isEnabled: true }],
-    ['mock_user_2', { username: 'mock_user_2', profile: 'vip', isEnabled: true }],
+  private readonly hotspotUsersMap: Map<string, HotspotUser & {
+    password?: string;
+    rateLimit?: string | undefined;
+    limitUptimeSeconds?: number | undefined;
+    limitBytesTotal?: number | bigint | undefined;
+  }> = new Map([
+    ['mock_user_1', { username: 'mock_user_1', profile: 'default', isEnabled: true, uptimeSeconds: 3600, bytesIn: BigInt(5242880), bytesOut: BigInt(20971520), comment: 'test' }],
+    ['mock_user_2', { username: 'mock_user_2', profile: 'vip', isEnabled: true, uptimeSeconds: 1200, bytesIn: BigInt(1048576), bytesOut: BigInt(4194304), comment: 'test' }],
+  ]);
+
+  private readonly activeSessions: Map<string, HotspotSession> = new Map([
+    ['mock_user_1', { id: '*1', username: 'mock_user_1', ipAddress: '192.168.88.245', macAddress: '00:11:22:33:44:55', uptimeSeconds: 120, bytesIn: BigInt(1048576), bytesOut: BigInt(5242880) }],
   ]);
 
   private checkFailureCondition(creds: RouterCredentialsInput): RouterConnectorResult<never> | null {
@@ -81,11 +92,25 @@ export class MockRouterConnector implements IRouterConnector {
     };
   }
 
+  public async getHotspotActiveSessions(
+    creds: RouterCredentialsInput,
+    _timeoutMs?: number
+  ): Promise<RouterConnectorResult<HotspotSession[]>> {
+    const failure = this.checkFailureCondition(creds);
+    if (failure) return failure;
+
+    return {
+      success: true,
+      data: Array.from(this.activeSessions.values()),
+    };
+  }
+
   public async createHotspotUser(
     creds: RouterCredentialsInput,
     username: string,
-    _password: string,
+    password: string,
     profile: string,
+    options?: CreateHotspotUserOptions,
     _timeoutMs?: number
   ): Promise<RouterConnectorResult<void>> {
     const failure = this.checkFailureCondition(creds);
@@ -95,7 +120,37 @@ export class MockRouterConnector implements IRouterConnector {
       username,
       profile,
       isEnabled: true,
+      password,
+      uptimeSeconds: 0,
+      bytesIn: BigInt(0),
+      bytesOut: BigInt(0),
+      comment: options?.comment,
+      rateLimit: options?.rateLimit,
+      limitUptimeSeconds: options?.limitUptimeSeconds,
+      limitBytesTotal: options?.limitBytesTotal,
     });
+
+    return {
+      success: true,
+      data: undefined,
+    };
+  }
+
+  public async enableHotspotUser(
+    creds: RouterCredentialsInput,
+    username: string,
+    _timeoutMs?: number
+  ): Promise<RouterConnectorResult<void>> {
+    const failure = this.checkFailureCondition(creds);
+    if (failure) return failure;
+
+    const existing = this.hotspotUsersMap.get(username);
+    if (existing) {
+      this.hotspotUsersMap.set(username, {
+        ...existing,
+        isEnabled: true,
+      });
+    }
 
     return {
       success: true,
@@ -127,11 +182,13 @@ export class MockRouterConnector implements IRouterConnector {
 
   public async disconnectActiveSession(
     creds: RouterCredentialsInput,
-    _username: string,
+    username: string,
     _timeoutMs?: number
   ): Promise<RouterConnectorResult<void>> {
     const failure = this.checkFailureCondition(creds);
     if (failure) return failure;
+
+    this.activeSessions.delete(username);
 
     return {
       success: true,

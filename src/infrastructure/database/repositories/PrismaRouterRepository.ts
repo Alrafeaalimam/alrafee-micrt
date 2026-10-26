@@ -5,7 +5,7 @@
 // Master Reference: Rule 16 (Adapters), Rule 19 (Security)
 // ============================================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client/wasm.js';
 import { prisma as defaultPrisma } from '../prisma.js';
 import {
   IRouterRepository,
@@ -13,7 +13,7 @@ import {
   CreateRouterData,
   UpdateRouterData,
 } from '../../../application/interfaces/IRouterRepository.js';
-import { encryptPassword } from '../../security/encryption.js';
+import { encryptPassword, decryptPassword } from '../../security/encryption.js';
 
 export class PrismaRouterRepository implements IRouterRepository {
   constructor(private readonly prisma: PrismaClient = defaultPrisma) {}
@@ -155,6 +155,70 @@ export class PrismaRouterRepository implements IRouterRepository {
 
     await this.prisma.router.delete({
       where: { id },
+    });
+  }
+
+  async getDecryptedCredentials(
+    id: string,
+    tenantId: string
+  ): Promise<{ username: string; password: string; connectionMethod: string; host: string; apiPort: number } | null> {
+    const record = await this.prisma.router.findFirst({
+      where: { id, tenantId },
+      include: { credentials: true },
+    });
+
+    if (!record || !record.credentials) return null;
+
+    const decryptedPassword = decryptPassword({
+      encryptedPassword: record.credentials.encryptedPassword,
+      encryptionIv: record.credentials.encryptionIv,
+      encryptionTag: record.credentials.encryptionTag,
+    });
+
+    return {
+      username: record.credentials.username,
+      password: decryptedPassword,
+      connectionMethod: record.connectionMethod,
+      host: record.host,
+      apiPort: record.apiPort,
+    };
+  }
+
+  async updateHealthStatus(
+    id: string,
+    tenantId: string,
+    status: 'ONLINE' | 'ERROR' | 'OFFLINE',
+    info?: {
+      routerOsVersion?: string;
+      boardModel?: string;
+      cpuLoadPercentage?: number;
+      uptimeSeconds?: bigint;
+      freeMemoryBytes?: bigint;
+      totalMemoryBytes?: bigint;
+      errorMessage?: string;
+    }
+  ): Promise<void> {
+    const data: any = {
+      status,
+      lastHealthCheckAt: new Date(),
+    };
+
+    if (status === 'ONLINE') {
+      data.lastSeenAt = new Date();
+      data.lastErrorMessage = null;
+      if (info?.routerOsVersion) data.routerOsVersion = info.routerOsVersion;
+      if (info?.boardModel) data.boardModel = info.boardModel;
+      if (info?.cpuLoadPercentage !== undefined) data.cpuLoadPercentage = info.cpuLoadPercentage;
+      if (info?.uptimeSeconds !== undefined) data.uptimeSeconds = info.uptimeSeconds;
+      if (info?.freeMemoryBytes !== undefined) data.freeMemoryBytes = info.freeMemoryBytes;
+      if (info?.totalMemoryBytes !== undefined) data.totalMemoryBytes = info.totalMemoryBytes;
+    } else {
+      if (info?.errorMessage) data.lastErrorMessage = info.errorMessage;
+    }
+
+    await this.prisma.router.updateMany({
+      where: { id, tenantId },
+      data,
     });
   }
 

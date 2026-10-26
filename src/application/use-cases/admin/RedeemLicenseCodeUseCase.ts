@@ -4,7 +4,7 @@
 // Use Case: Redeem License Code to Activate or Extend Subscription (Tenant Admin)
 // ============================================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client/wasm.js';
 import { prisma as defaultPrisma } from '../../../infrastructure/database/prisma.js';
 import { IAuditLogger } from '../../interfaces/IAuditLogger.js';
 import { defaultAuditLogger } from '../../../infrastructure/logging/AuditLogger.js';

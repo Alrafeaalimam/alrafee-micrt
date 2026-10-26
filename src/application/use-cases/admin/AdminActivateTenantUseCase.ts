@@ -4,7 +4,7 @@
 // Use Case: Direct License Activation by Super Admin (Rule 27 Commercial Licensing)
 // ============================================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client/wasm.js';
 import { prisma as defaultPrisma } from '../../../infrastructure/database/prisma.js';
 import { IAuditLogger } from '../../interfaces/IAuditLogger.js';
 import { defaultAuditLogger } from '../../../infrastructure/logging/AuditLogger.js';

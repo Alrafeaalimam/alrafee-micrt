@@ -109,4 +109,17 @@ describe('Card Routes HTTP Integration Tests', () => {
     assert.strictEqual(body.success, false);
     assert.strictEqual(body.errorCode, 'VALIDATION_ERROR');
   });
+
+  it('GET /api/v1/cards/batches should return 200 with list of batches for tenant', async () => {
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/v1/cards/batches',
+      headers: authHeaders,
+    });
+
+    assert.strictEqual(response.statusCode, 200);
+    const body = JSON.parse(response.body);
+    assert.strictEqual(body.success, true);
+    assert.ok(Array.isArray(body.data));
+  });
 });

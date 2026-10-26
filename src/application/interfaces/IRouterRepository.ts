@@ -8,6 +8,7 @@ export type RouterConnectionMethod =
   | 'ROUTEROS_API_SSL'
   | 'ROUTEROS_API_PLAIN'
   | 'REST_API_HTTPS'
+  | 'REST_API_PLAIN'
   | 'SSH_TUNNEL';
 
 export type RouterStatusType =
@@ -77,10 +78,19 @@ export interface UpdateRouterData {
 }
 
 
+export interface DecryptedRouterCredentials {
+  username: string;
+  password: string;
+  connectionMethod: string;
+  host: string;
+  apiPort: number;
+}
+
 export interface IRouterRepository {
   create(data: CreateRouterData): Promise<Router>;
   findById(id: string, tenantId: string): Promise<Router | null>;
   findAllByTenant(tenantId: string): Promise<Router[]>;
   update(id: string, tenantId: string, data: UpdateRouterData): Promise<Router>;
   delete(id: string, tenantId: string): Promise<void>;
+  getDecryptedCredentials?(id: string, tenantId: string): Promise<DecryptedRouterCredentials | null>;
 }

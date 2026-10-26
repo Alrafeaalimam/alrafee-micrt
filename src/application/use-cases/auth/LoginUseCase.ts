@@ -10,7 +10,7 @@ import { IUserRepository } from '../../interfaces/IUserRepository.js';
 import { IAuditLogger } from '../../interfaces/IAuditLogger.js';
 import { verifyPassword } from '../../../infrastructure/security/password.js';
 import { signToken, signTempToken } from '../../../infrastructure/security/jwt.js';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client/wasm.js';
 import { prisma as defaultPrisma } from '../../../infrastructure/database/prisma.js';
 import { IEmailService, defaultEmailService } from '../../../infrastructure/email/EmailService.js';
 import { InvalidCredentialsException } from '../../../domain/exceptions/InvalidCredentialsException.js';
@@ -141,52 +141,95 @@ export class LoginUseCase {
           },
         });
       } else {
-        // Untrusted / new device: generate OTP and return tempToken without full JWT
+        // Untrusted / new device: verify whether email delivery is available
+        const isEmailConfigured = typeof this.emailService.isConfigured === 'function'
+          ? this.emailService.isConfigured()
+          : (process.env.NODE_ENV === 'test' || Boolean(process.env.SMTP_USER?.trim() && process.env.SMTP_APP_PASSWORD?.trim()));
+
+        let emailSent = false;
         const otpCode = crypto.randomInt(100000, 1000000).toString();
-        const otpHash = await bcrypt.hash(otpCode, 10);
-        const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-        await this.prisma.loginOtp.create({
-          data: {
-            userId: user.id,
-            otpHash,
-            expiresAt,
-            used: false,
-          },
-        });
+        if (user.email && isEmailConfigured) {
+          const otpHash = await bcrypt.hash(otpCode, 10);
+          const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-        if (user.email) {
+          await this.prisma.loginOtp.create({
+            data: {
+              userId: user.id,
+              otpHash,
+              expiresAt,
+              used: false,
+            },
+          });
+
           try {
-            await this.emailService.sendDeviceVerificationOtpEmail(
+            emailSent = await this.emailService.sendDeviceVerificationOtpEmail(
               user.email,
               otpCode,
               input.deviceLabel
             );
           } catch (emailErr) {
             console.error('[LoginUseCase] Failed to send device verification email:', emailErr);
+            emailSent = false;
           }
         }
 
-        const tempToken = signTempToken({
-          userId: user.id,
-          tenantId: user.tenantId,
+        if (emailSent) {
+          const tempToken = signTempToken({
+            userId: user.id,
+            tenantId: user.tenantId,
+          });
+
+          const maskEmail = (email?: string | null): string => {
+            if (!email || !email.includes('@')) return 'بريدك الإلكتروني المسجل';
+            const parts = email.split('@');
+            const local = parts[0] || '';
+            const domain = parts[1] || '';
+            const maskedLocal = local.length <= 2 ? `${local}***` : `${local[0]}***${local[local.length - 1]}`;
+            return `${maskedLocal}@${domain}`;
+          };
+
+          return {
+            requiresDeviceVerification: true,
+            tempToken,
+            emailMasked: maskEmail(user.email),
+            message: 'تم إرسال كود تحقق لبريدك لأن هذا جهاز جديد',
+          };
+        }
+
+        // Fallback: When email is not configured, delivery fails, or user has no email,
+        // do not block or trap the authenticated user in an impossible OTP challenge.
+        // Auto-trust the device upon verified password, record security audit log, and proceed to issue token.
+        await this.prisma.trustedDevice.upsert({
+          where: {
+            userId_deviceFingerprint: {
+              userId: user.id,
+              deviceFingerprint: cleanFingerprint,
+            },
+          },
+          create: {
+            userId: user.id,
+            deviceFingerprint: cleanFingerprint,
+            deviceLabel: input.deviceLabel ?? null,
+            lastUsedAt: new Date(),
+          },
+          update: {
+            lastUsedAt: new Date(),
+            ...(input.deviceLabel ? { deviceLabel: input.deviceLabel } : {}),
+          },
         });
 
-        const maskEmail = (email?: string | null): string => {
-          if (!email || !email.includes('@')) return 'بريدك الإلكتروني المسجل';
-          const parts = email.split('@');
-          const local = parts[0] || '';
-          const domain = parts[1] || '';
-          const maskedLocal = local.length <= 2 ? `${local}***` : `${local[0]}***${local[local.length - 1]}`;
-          return `${maskedLocal}@${domain}`;
-        };
-
-        return {
-          requiresDeviceVerification: true,
-          tempToken,
-          emailMasked: maskEmail(user.email),
-          message: 'تم إرسال كود تحقق لبريدك لأن هذا جهاز جديد',
-        };
+        if (this.auditLogger) {
+          await this.auditLogger.log(
+            user.tenantId,
+            user.id,
+            'LOGIN',
+            'User',
+            user.id,
+            `Device "${cleanFingerprint}" trusted upon login (email OTP delivery unavailable)`,
+            'SUCCESS'
+          );
+        }
       }
     }
 

@@ -12,7 +12,14 @@ import {
   adminActivateTenantSchema,
   updateUserRoleSchema,
   createSuperAdminSchema,
+  createSubscriptionPlanSchema,
+  updateSubscriptionPlanSchema,
+  reviewSubscriptionRequestSchema,
+  createPaymentMethodSchema,
+  updatePaymentMethodSchema,
 } from '../../validators/admin.validator.js';
+import { prisma } from '../../../infrastructure/database/prisma.js';
+import { defaultAuditLogger } from '../../../infrastructure/logging/AuditLogger.js';
 import { GenerateLicenseCodeUseCase } from '../../../application/use-cases/admin/GenerateLicenseCodeUseCase.js';
 import { ListTenantsUseCase } from '../../../application/use-cases/admin/ListTenantsUseCase.js';
 import { ListLicenseCodesUseCase } from '../../../application/use-cases/admin/ListLicenseCodesUseCase.js';
@@ -458,6 +465,799 @@ export const adminRoutes: FastifyPluginAsync = async (
         success: false,
         errorCode: 'SEND_NOTIFICATION_FAILED',
         errorMessage: err.message || 'فشل إرسال الإشعار',
+      });
+    }
+  });
+
+  // --------------------------------------------------------------------------
+  // 16. SUBSCRIPTION PLANS MANAGEMENT (Super Admin)
+  // --------------------------------------------------------------------------
+  fastify.get('/subscription-plans', async (_request, reply) => {
+    try {
+      const plans = await prisma.subscriptionPlan.findMany({
+        orderBy: { durationDays: 'asc' },
+      });
+      return reply.status(200).send({
+        success: true,
+        data: plans.map((p) => ({
+          ...p,
+          price: Number(p.price),
+        })),
+      });
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to fetch subscription plans');
+      return reply.status(500).send({
+        success: false,
+        errorCode: 'INTERNAL_ERROR',
+        errorMessage: 'فشل جلب باقات الاشتراك',
+      });
+    }
+  });
+
+  fastify.post('/subscription-plans', async (request, reply) => {
+    const parseResult = createSubscriptionPlanSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        success: false,
+        errorCode: 'VALIDATION_ERROR',
+        errorMessage: 'بيانات الباقة غير صالحة',
+        details: parseResult.error.flatten().fieldErrors,
+      });
+    }
+
+    try {
+      const { userId } = request.user!;
+      const d = parseResult.data;
+      const created = await prisma.subscriptionPlan.create({
+        data: {
+          name: d.name,
+          durationDays: d.durationDays,
+          price: d.price,
+          currency: d.currency,
+          description: d.description ?? null,
+          maxRoutersLimit: d.maxRoutersLimit,
+          isActive: d.isActive,
+        },
+      });
+
+      await defaultAuditLogger.log(
+        request.user!.tenantId,
+        userId,
+        'CREATE',
+        'SubscriptionPlan',
+        created.id,
+        `تم إنشاء باقة اشتراك جديدة: "${created.name}" بسعر ${created.price} ${created.currency} لمدة ${created.durationDays} يوم`,
+        'SUCCESS'
+      );
+
+      return reply.status(201).send({
+        success: true,
+        data: {
+          ...created,
+          price: Number(created.price),
+        },
+        message: 'تم إنشاء باقة الاشتراك بنجاح',
+      });
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to create subscription plan');
+      return reply.status(500).send({
+        success: false,
+        errorCode: 'INTERNAL_ERROR',
+        errorMessage: 'فشل إنشاء باقة الاشتراك',
+      });
+    }
+  });
+
+  fastify.put('/subscription-plans/:id', async (request: any, reply) => {
+    const { id } = request.params;
+    const parseResult = updateSubscriptionPlanSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        success: false,
+        errorCode: 'VALIDATION_ERROR',
+        errorMessage: 'بيانات تعديل الباقة غير صالحة',
+        details: parseResult.error.flatten().fieldErrors,
+      });
+    }
+
+    try {
+      const { userId } = request.user!;
+      const d = parseResult.data;
+      const dataToUpdate: any = {};
+      if (d.name !== undefined) dataToUpdate.name = d.name;
+      if (d.durationDays !== undefined) dataToUpdate.durationDays = d.durationDays;
+      if (d.price !== undefined) dataToUpdate.price = d.price;
+      if (d.currency !== undefined) dataToUpdate.currency = d.currency;
+      if (d.description !== undefined) dataToUpdate.description = d.description;
+      if (d.maxRoutersLimit !== undefined) dataToUpdate.maxRoutersLimit = d.maxRoutersLimit;
+      if (d.isActive !== undefined) dataToUpdate.isActive = d.isActive;
+
+      const updated = await prisma.subscriptionPlan.update({
+        where: { id },
+        data: dataToUpdate,
+      });
+
+      await defaultAuditLogger.log(
+        request.user!.tenantId,
+        userId,
+        'UPDATE',
+        'SubscriptionPlan',
+        updated.id,
+        `تم تعديل باقة الاشتراك: "${updated.name}"`,
+        'SUCCESS'
+      );
+
+      return reply.status(200).send({
+        success: true,
+        data: {
+          ...updated,
+          price: Number(updated.price),
+        },
+        message: 'تم تحديث باقة الاشتراك بنجاح',
+      });
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to update subscription plan');
+      return reply.status(500).send({
+        success: false,
+        errorCode: 'INTERNAL_ERROR',
+        errorMessage: 'فشل تحديث باقة الاشتراك',
+      });
+    }
+  });
+
+  fastify.patch('/subscription-plans/:id/toggle-active', async (request: any, reply) => {
+    const { id } = request.params;
+    try {
+      const { userId } = request.user!;
+      const plan = await prisma.subscriptionPlan.findUnique({
+        where: { id },
+      });
+
+      if (!plan) {
+        return reply.status(404).send({
+          success: false,
+          errorCode: 'PLAN_NOT_FOUND',
+          errorMessage: 'باقة الاشتراك غير موجودة',
+        });
+      }
+
+      const updated = await prisma.subscriptionPlan.update({
+        where: { id },
+        data: { isActive: !plan.isActive },
+      });
+
+      await defaultAuditLogger.log(
+        request.user!.tenantId,
+        userId,
+        'UPDATE',
+        'SubscriptionPlan',
+        updated.id,
+        `تم ${updated.isActive ? 'تفعيل' : 'تعطيل'} باقة الاشتراك: "${updated.name}"`,
+        'SUCCESS'
+      );
+
+      return reply.status(200).send({
+        success: true,
+        data: {
+          ...updated,
+          price: Number(updated.price),
+        },
+        message: `تم ${updated.isActive ? 'تفعيل' : 'تعطيل'} باقة الاشتراك بنجاح`,
+      });
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to toggle subscription plan status');
+      return reply.status(500).send({
+        success: false,
+        errorCode: 'INTERNAL_ERROR',
+        errorMessage: 'فشل تغيير حالة تفعيل باقة الاشتراك',
+      });
+    }
+  });
+
+  fastify.delete('/subscription-plans/:id', async (request: any, reply) => {
+    const { id } = request.params;
+    try {
+      const { userId } = request.user!;
+      const plan = await prisma.subscriptionPlan.findUnique({
+        where: { id },
+      });
+
+      if (!plan) {
+        return reply.status(404).send({
+          success: false,
+          errorCode: 'PLAN_NOT_FOUND',
+          errorMessage: 'باقة الاشتراك غير موجودة',
+        });
+      }
+
+      // Check if plan has existing tenant subscription requests
+      const linkedRequestsCount = await prisma.subscriptionRequest.count({
+        where: { planId: id },
+      });
+
+      if (linkedRequestsCount > 0) {
+        // Non-destructive safe handling: Deactivate plan instead of deleting historical records
+        const updated = await prisma.subscriptionPlan.update({
+          where: { id },
+          data: { isActive: false },
+        });
+
+        await defaultAuditLogger.log(
+          request.user!.tenantId,
+          userId,
+          'UPDATE',
+          'SubscriptionPlan',
+          updated.id,
+          `تم تعطيل باقة الاشتراك "${updated.name}" بدلاً من حذفها لوجود ${linkedRequestsCount} طلبات اشتراك سابقة مرتبطة بها`,
+          'SUCCESS'
+        );
+
+        return reply.status(200).send({
+          success: true,
+          data: {
+            ...updated,
+            price: Number(updated.price),
+          },
+          deactivated: true,
+          message: `تم تعطيل باقة الاشتراك بنجاح لحماية سجلات (${linkedRequestsCount}) طلبات اشتراك سابقة تابعة للمستأجرين.`,
+        });
+      }
+
+      // If no requests are linked, safely delete the plan
+      await prisma.subscriptionPlan.delete({
+        where: { id },
+      });
+
+      await defaultAuditLogger.log(
+        request.user!.tenantId,
+        userId,
+        'DELETE',
+        'SubscriptionPlan',
+        id,
+        `تم حذف باقة الاشتراك "${plan.name}" نهائياً لعدم وجود اشتراكات سابقة مرتبطة بها`,
+        'SUCCESS'
+      );
+
+      return reply.status(200).send({
+        success: true,
+        deleted: true,
+        message: 'تم حذف باقة الاشتراك بنجاح',
+      });
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to delete subscription plan');
+      return reply.status(500).send({
+        success: false,
+        errorCode: 'INTERNAL_ERROR',
+        errorMessage: 'فشل حذف أو تعطيل باقة الاشتراك',
+      });
+    }
+  });
+
+  // --------------------------------------------------------------------------
+  // 17. SUBSCRIPTION ACTIVATION REQUESTS MANAGEMENT (Super Admin)
+  // --------------------------------------------------------------------------
+  fastify.get('/subscription-requests', async (request: any, reply) => {
+    try {
+      const { status } = request.query || {};
+      const requests = await prisma.subscriptionRequest.findMany({
+        where: status ? { status } : {},
+        include: {
+          tenant: { select: { id: true, name: true, slug: true, contactEmail: true, contactPhone: true } },
+          user: { select: { id: true, username: true, fullName: true, email: true } },
+          plan: true,
+          paymentMethod: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      return reply.status(200).send({
+        success: true,
+        data: requests.map((r) => ({
+          id: r.id,
+          status: r.status,
+          tenantId: r.tenantId,
+          tenantName: r.tenant.name,
+          tenantSlug: r.tenant.slug,
+          contactEmail: r.tenant.contactEmail,
+          contactPhone: r.tenant.contactPhone,
+          requestedBy: {
+            id: r.user.id,
+            username: r.user.username,
+            fullName: r.user.fullName,
+            email: r.user.email,
+          },
+          plan: {
+            id: r.plan.id,
+            name: r.plan.name,
+            durationDays: r.durationDaysSnapshot,
+            price: Number(r.priceSnapshot),
+            currency: r.currencySnapshot,
+          },
+          senderName: r.senderName,
+          referenceNumber: r.referenceNumber,
+          receiptUrl: r.receiptUrl,
+          paymentMethod: r.paymentMethod
+            ? {
+                id: r.paymentMethod.id,
+                providerName: r.paymentMethod.providerName,
+                accountName: r.paymentMethod.accountName,
+                accountNumber: r.paymentMethod.accountNumber,
+              }
+            : null,
+          notes: r.notes,
+          reviewNotes: r.reviewNotes,
+          reviewedAt: r.reviewedAt?.toISOString() ?? null,
+          createdAt: r.createdAt.toISOString(),
+        })),
+      });
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to list subscription requests');
+      return reply.status(500).send({
+        success: false,
+        errorCode: 'INTERNAL_ERROR',
+        errorMessage: 'فشل جلب طلبات التفعيل',
+      });
+    }
+  });
+
+  fastify.post('/subscription-requests/:id/approve', async (request: any, reply) => {
+    const { id } = request.params;
+    const parseResult = reviewSubscriptionRequestSchema.safeParse(request.body || {});
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        success: false,
+        errorCode: 'VALIDATION_ERROR',
+        errorMessage: 'بيانات المراجعة غير صالحة',
+      });
+    }
+
+    try {
+      const { userId } = request.user!;
+      const subRequest = await prisma.subscriptionRequest.findUnique({
+        where: { id },
+        include: { tenant: true, plan: true },
+      });
+
+      if (!subRequest) {
+        return reply.status(404).send({
+          success: false,
+          errorCode: 'REQUEST_NOT_FOUND',
+          errorMessage: 'طلب التفعيل غير موجود',
+        });
+      }
+
+      if (subRequest.status !== 'PENDING') {
+        return reply.status(400).send({
+          success: false,
+          errorCode: 'REQUEST_ALREADY_REVIEWED',
+          errorMessage: `هذا الطلب تمت مراجعته مسبقاً (الحالة الحالية: ${subRequest.status})`,
+        });
+      }
+
+      // Anti-fraud: ensure reference number isn't duplicated across other approved requests
+      if (subRequest.referenceNumber && subRequest.referenceNumber.trim().length > 0) {
+        const otherApproved = await prisma.subscriptionRequest.findFirst({
+          where: {
+            id: { not: subRequest.id },
+            referenceNumber: subRequest.referenceNumber.trim(),
+            status: 'APPROVED',
+          },
+        });
+        if (otherApproved) {
+          return reply.status(400).send({
+            success: false,
+            errorCode: 'DUPLICATE_REFERENCE_NUMBER',
+            errorMessage: 'رقم العملية المرجعي لهذا الطلب مستخدم مسبقاً في عملية اشتراك معتمدة أخرى',
+          });
+        }
+      }
+
+      const tenant = subRequest.tenant;
+      const now = new Date();
+      let baseDate = now;
+
+      if (
+        tenant.subscriptionStatus === 'ACTIVE' &&
+        tenant.subscriptionEndsAt &&
+        tenant.subscriptionEndsAt.getTime() > now.getTime()
+      ) {
+        baseDate = tenant.subscriptionEndsAt;
+      }
+
+      const newEndsAt = new Date(
+        baseDate.getTime() + subRequest.durationDaysSnapshot * 24 * 60 * 60 * 1000
+      );
+
+      // Atomically approve request and activate tenant license inside a transaction
+      await prisma.$transaction([
+        prisma.subscriptionRequest.update({
+          where: { id: subRequest.id },
+          data: {
+            status: 'APPROVED',
+            reviewedByUserId: userId,
+            reviewedAt: now,
+            reviewNotes: parseResult.data?.reviewNotes ?? 'تم تأكيد السداد وتفعيل الباقة بنجاح',
+          },
+        }),
+        prisma.tenant.update({
+          where: { id: tenant.id },
+          data: {
+            subscriptionStatus: 'ACTIVE',
+            approvalStatus: 'APPROVED',
+            status: 'ACTIVE',
+            planName: subRequest.plan.name,
+            maxRoutersLimit: subRequest.plan.maxRoutersLimit,
+            subscriptionEndsAt: newEndsAt,
+          },
+        }),
+      ]);
+
+      await defaultAuditLogger.log(
+        tenant.id,
+        userId,
+        'UPDATE',
+        'SubscriptionRequest',
+        subRequest.id,
+        `تمت الموافقة على طلب تفعيل الاشتراك للشبكة "${tenant.name}": باقة "${subRequest.plan.name}" لمدة ${subRequest.durationDaysSnapshot} يوم حتى ${newEndsAt.toISOString()}`,
+        'SUCCESS'
+      );
+
+      return reply.status(200).send({
+        success: true,
+        data: {
+          requestId: subRequest.id,
+          status: 'APPROVED',
+          tenantId: tenant.id,
+          tenantName: tenant.name,
+          planName: subRequest.plan.name,
+          subscriptionEndsAt: newEndsAt.toISOString(),
+        },
+        message: `تمت الموافقة على طلب التفعيل بنجاح وتفعيل اشتراك الشبكة "${tenant.name}"`,
+      });
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to approve subscription request');
+      return reply.status(500).send({
+        success: false,
+        errorCode: 'INTERNAL_ERROR',
+        errorMessage: 'حدث خطأ أثناء الموافقة على طلب التفعيل',
+      });
+    }
+  });
+
+  fastify.post('/subscription-requests/:id/reject', async (request: any, reply) => {
+    const { id } = request.params;
+    const parseResult = reviewSubscriptionRequestSchema.safeParse(request.body || {});
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        success: false,
+        errorCode: 'VALIDATION_ERROR',
+        errorMessage: 'بيانات المراجعة غير صالحة',
+      });
+    }
+
+    try {
+      const { userId } = request.user!;
+      const subRequest = await prisma.subscriptionRequest.findUnique({
+        where: { id },
+        include: { tenant: true },
+      });
+
+      if (!subRequest) {
+        return reply.status(404).send({
+          success: false,
+          errorCode: 'REQUEST_NOT_FOUND',
+          errorMessage: 'طلب التفعيل غير موجود',
+        });
+      }
+
+      if (subRequest.status !== 'PENDING') {
+        return reply.status(400).send({
+          success: false,
+          errorCode: 'REQUEST_ALREADY_REVIEWED',
+          errorMessage: `هذا الطلب تمت مراجعته مسبقاً (الحالة الحالية: ${subRequest.status})`,
+        });
+      }
+
+      const now = new Date();
+      const updated = await prisma.subscriptionRequest.update({
+        where: { id: subRequest.id },
+        data: {
+          status: 'REJECTED',
+          reviewedByUserId: userId,
+          reviewedAt: now,
+          reviewNotes: parseResult.data?.reviewNotes ?? 'تم رفض الطلب لعدم اكتمال بيانات الدفع أو التحقق',
+        },
+      });
+
+      await defaultAuditLogger.log(
+        subRequest.tenantId,
+        userId,
+        'UPDATE',
+        'SubscriptionRequest',
+        subRequest.id,
+        `تم رفض طلب تفعيل الاشتراك للشبكة "${subRequest.tenant.name}". السبب: ${updated.reviewNotes}`,
+        'WARNING'
+      );
+
+      return reply.status(200).send({
+        success: true,
+        data: {
+          requestId: updated.id,
+          status: 'REJECTED',
+          reviewNotes: updated.reviewNotes,
+        },
+        message: 'تم رفض طلب التفعيل وتسجيل السبب',
+      });
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to reject subscription request');
+      return reply.status(500).send({
+        success: false,
+        errorCode: 'INTERNAL_ERROR',
+        errorMessage: 'حدث خطأ أثناء رفض طلب التفعيل',
+      });
+    }
+  });
+
+  // --------------------------------------------------------------------------
+  // 18. MANUAL PAYMENT METHODS MANAGEMENT (Super Admin)
+  // --------------------------------------------------------------------------
+  fastify.get('/payment-methods', async (_request, reply) => {
+    try {
+      const methods = await prisma.manualPaymentMethod.findMany({
+        orderBy: [{ displayOrder: 'asc' }, { createdAt: 'desc' }],
+      });
+
+      return reply.status(200).send({
+        success: true,
+        data: methods.map((m) => ({
+          id: m.id,
+          providerName: m.providerName,
+          accountName: m.accountName,
+          accountNumber: m.accountNumber,
+          beneficiaryName: m.beneficiaryName,
+          instructions: m.instructions,
+          currency: m.currency,
+          isActive: m.isActive,
+          displayOrder: m.displayOrder,
+          createdAt: m.createdAt.toISOString(),
+          updatedAt: m.updatedAt.toISOString(),
+        })),
+      });
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to list payment methods for admin');
+      return reply.status(500).send({
+        success: false,
+        errorCode: 'INTERNAL_ERROR',
+        errorMessage: 'فشل جلب وسائل الدفع للأدمن',
+      });
+    }
+  });
+
+  fastify.post('/payment-methods', async (request, reply) => {
+    const parseResult = createPaymentMethodSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      const details = parseResult.error.flatten().fieldErrors;
+      const detailsStr = Object.entries(details)
+        .map(([k, v]) => `${k}: ${v?.join(', ')}`)
+        .join(' | ');
+      return reply.status(400).send({
+        success: false,
+        errorCode: 'VALIDATION_ERROR',
+        errorMessage: detailsStr ? `بيانات وسيلة الدفع غير صالحة (${detailsStr})` : 'بيانات وسيلة الدفع غير صالحة',
+        details,
+      });
+    }
+
+    try {
+      const { userId } = request.user!;
+      const d = parseResult.data;
+      const created = await prisma.manualPaymentMethod.create({
+        data: {
+          providerName: d.providerName,
+          accountName: d.accountName,
+          accountNumber: d.accountNumber,
+          beneficiaryName: d.beneficiaryName ?? null,
+          instructions: d.instructions ?? null,
+          currency: d.currency ?? 'SDG',
+          isActive: d.isActive ?? true,
+          displayOrder: d.displayOrder ?? 0,
+        },
+      });
+
+      await defaultAuditLogger.log(
+        request.user!.tenantId,
+        userId,
+        'CREATE',
+        'ManualPaymentMethod',
+        created.id,
+        `تمت إضافة وسيلة دفع جديدة: "${created.providerName}" - حساب: ${created.accountNumber}`,
+        'SUCCESS'
+      );
+
+      return reply.status(201).send({
+        success: true,
+        data: created,
+        message: 'تمت إضافة وسيلة الدفع بنجاح',
+      });
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to create payment method');
+      return reply.status(500).send({
+        success: false,
+        errorCode: 'INTERNAL_ERROR',
+        errorMessage: 'فشل إنشاء وسيلة الدفع',
+      });
+    }
+  });
+
+  fastify.put('/payment-methods/:id', async (request: any, reply) => {
+    const { id } = request.params;
+    const parseResult = updatePaymentMethodSchema.safeParse(request.body);
+    if (!parseResult.success) {
+      return reply.status(400).send({
+        success: false,
+        errorCode: 'VALIDATION_ERROR',
+        errorMessage: 'بيانات تعديل وسيلة الدفع غير صالحة',
+        details: parseResult.error.flatten().fieldErrors,
+      });
+    }
+
+    try {
+      const { userId } = request.user!;
+      const existing = await prisma.manualPaymentMethod.findUnique({ where: { id } });
+      if (!existing) {
+        return reply.status(404).send({
+          success: false,
+          errorCode: 'PAYMENT_METHOD_NOT_FOUND',
+          errorMessage: 'وسيلة الدفع غير موجودة',
+        });
+      }
+
+      const d = parseResult.data;
+      const updated = await prisma.manualPaymentMethod.update({
+        where: { id },
+        data: {
+          ...(d.providerName !== undefined ? { providerName: d.providerName } : {}),
+          ...(d.accountName !== undefined ? { accountName: d.accountName } : {}),
+          ...(d.accountNumber !== undefined ? { accountNumber: d.accountNumber } : {}),
+          ...(d.beneficiaryName !== undefined ? { beneficiaryName: d.beneficiaryName } : {}),
+          ...(d.instructions !== undefined ? { instructions: d.instructions } : {}),
+          ...(d.currency !== undefined ? { currency: d.currency } : {}),
+          ...(d.isActive !== undefined ? { isActive: d.isActive } : {}),
+          ...(d.displayOrder !== undefined ? { displayOrder: d.displayOrder } : {}),
+        },
+      });
+
+      await defaultAuditLogger.log(
+        request.user!.tenantId,
+        userId,
+        'UPDATE',
+        'ManualPaymentMethod',
+        updated.id,
+        `تم تعديل بيانات وسيلة الدفع: "${updated.providerName}"`,
+        'SUCCESS'
+      );
+
+      return reply.status(200).send({
+        success: true,
+        data: updated,
+        message: 'تم تحديث وسيلة الدفع بنجاح',
+      });
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to update payment method');
+      return reply.status(500).send({
+        success: false,
+        errorCode: 'INTERNAL_ERROR',
+        errorMessage: 'فشل تحديث وسيلة الدفع',
+      });
+    }
+  });
+
+  fastify.patch('/payment-methods/:id/toggle-active', async (request: any, reply) => {
+    const { id } = request.params;
+    try {
+      const { userId } = request.user!;
+      const existing = await prisma.manualPaymentMethod.findUnique({ where: { id } });
+      if (!existing) {
+        return reply.status(404).send({
+          success: false,
+          errorCode: 'PAYMENT_METHOD_NOT_FOUND',
+          errorMessage: 'وسيلة الدفع غير موجودة',
+        });
+      }
+
+      const updated = await prisma.manualPaymentMethod.update({
+        where: { id },
+        data: { isActive: !existing.isActive },
+      });
+
+      await defaultAuditLogger.log(
+        request.user!.tenantId,
+        userId,
+        'UPDATE',
+        'ManualPaymentMethod',
+        updated.id,
+        `تم ${updated.isActive ? 'تفعيل' : 'تعطيل'} وسيلة الدفع: "${updated.providerName}"`,
+        'SUCCESS'
+      );
+
+      return reply.status(200).send({
+        success: true,
+        data: updated,
+        message: `تم ${updated.isActive ? 'تفعيل' : 'تعطيل'} وسيلة الدفع بنجاح`,
+      });
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to toggle payment method active status');
+      return reply.status(500).send({
+        success: false,
+        errorCode: 'INTERNAL_ERROR',
+        errorMessage: 'فشل تغيير حالة وسيلة الدفع',
+      });
+    }
+  });
+
+  fastify.delete('/payment-methods/:id', async (request: any, reply) => {
+    const { id } = request.params;
+    try {
+      const { userId } = request.user!;
+      const existing = await prisma.manualPaymentMethod.findUnique({ where: { id } });
+      if (!existing) {
+        return reply.status(404).send({
+          success: false,
+          errorCode: 'PAYMENT_METHOD_NOT_FOUND',
+          errorMessage: 'وسيلة الدفع غير موجودة',
+        });
+      }
+
+      const linkedRequestsCount = await prisma.subscriptionRequest.count({
+        where: { paymentMethodId: id },
+      });
+
+      if (linkedRequestsCount > 0) {
+        // Safe preservation: deactivate instead of hard delete
+        const updated = await prisma.manualPaymentMethod.update({
+          where: { id },
+          data: { isActive: false },
+        });
+
+        await defaultAuditLogger.log(
+          request.user!.tenantId,
+          userId,
+          'UPDATE',
+          'ManualPaymentMethod',
+          updated.id,
+          `تم تعطيل وسيلة الدفع "${updated.providerName}" بدلاً من حذفها لوجود ${linkedRequestsCount} طلبات اشتراك سابقة مرتبطة بها`,
+          'SUCCESS'
+        );
+
+        return reply.status(200).send({
+          success: true,
+          data: updated,
+          message: 'تم تعطيل وسيلة الدفع وحفظ سجلاتها التاريخية نظراً لوجود معاملات سابقة مرتبطة بها',
+        });
+      }
+
+      await prisma.manualPaymentMethod.delete({ where: { id } });
+
+      await defaultAuditLogger.log(
+        request.user!.tenantId,
+        userId,
+        'DELETE',
+        'ManualPaymentMethod',
+        id,
+        `تم حذف وسيلة الدفع "${existing.providerName}" بنجاح`,
+        'WARNING'
+      );
+
+      return reply.status(200).send({
+        success: true,
+        message: 'تم حذف وسيلة الدفع بنجاح',
+      });
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to delete payment method');
+      return reply.status(500).send({
+        success: false,
+        errorCode: 'INTERNAL_ERROR',
+        errorMessage: 'فشل حذف وسيلة الدفع',
       });
     }
   });

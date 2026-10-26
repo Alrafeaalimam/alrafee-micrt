@@ -6,9 +6,10 @@
 // ============================================================================
 
 import nodemailer from 'nodemailer';
-import type { Transporter } from 'nodemailer';
+import type { Transporter, SendMailOptions } from 'nodemailer';
 
 export interface IEmailService {
+  isConfigured?(): boolean;
   sendOtpEmail(toEmail: string, otpCode: string): Promise<boolean>;
   sendDeviceVerificationOtpEmail(toEmail: string, otpCode: string, deviceLabel?: string): Promise<boolean>;
   sendWelcomeEmail(toEmail: string, networkName: string): Promise<boolean>;
@@ -21,6 +22,13 @@ export class EmailService implements IEmailService {
     if (customTransporter) {
       this.transporter = customTransporter;
     }
+  }
+
+  public isConfigured(): boolean {
+    if (this.transporter) return true;
+    const user = process.env.SMTP_USER?.trim();
+    const pass = process.env.SMTP_APP_PASSWORD?.trim();
+    return Boolean(user && pass);
   }
 
   private getTransporter(): Transporter {
@@ -41,15 +49,39 @@ export class EmailService implements IEmailService {
         user,
         pass,
       },
+      connectionTimeout: 4000,
+      greetingTimeout: 4000,
+      socketTimeout: 5000,
     });
 
     return this.transporter;
+  }
+
+  private async sendMailWithTimeout(
+    transporter: Transporter,
+    mailOptions: SendMailOptions,
+    timeoutMs: number = 5000
+  ): Promise<boolean> {
+    return Promise.race([
+      transporter.sendMail(mailOptions).then(() => true),
+      new Promise<boolean>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`SMTP sendMail timed out after ${timeoutMs}ms`)),
+          timeoutMs
+        )
+      ),
+    ]);
   }
 
   async sendOtpEmail(toEmail: string, otpCode: string): Promise<boolean> {
     if (process.env.NODE_ENV === 'test') {
       // Mock/stub delivery in automated test mode to avoid network delays or SMTP quota exhaustion
       return true;
+    }
+
+    if (!this.isConfigured()) {
+      console.warn('[EmailService] SMTP not configured (SMTP_USER/SMTP_APP_PASSWORD missing). Skipping sendOtpEmail.');
+      return false;
     }
 
     const fromAddress = process.env.SMTP_USER || 'jalsahnetwork@gmail.com';
@@ -192,7 +224,7 @@ https://jalsah.network`;
 `;
 
     try {
-      await transporter.sendMail({
+      await this.sendMailWithTimeout(transporter, {
         from: `"نظام جلسة | Jalsah" <${fromAddress}>`,
         to: toEmail,
         subject,
@@ -202,13 +234,18 @@ https://jalsah.network`;
       return true;
     } catch (err) {
       console.error('[EmailService] Failed to send email via SMTP:', err);
-      throw err;
+      return false;
     }
   }
 
   async sendDeviceVerificationOtpEmail(toEmail: string, otpCode: string, deviceLabel?: string): Promise<boolean> {
     if (process.env.NODE_ENV === 'test') {
       return true;
+    }
+
+    if (!this.isConfigured()) {
+      console.warn('[EmailService] SMTP not configured (SMTP_USER/SMTP_APP_PASSWORD missing). Skipping sendDeviceVerificationOtpEmail.');
+      return false;
     }
 
     const fromAddress = process.env.SMTP_USER || 'jalsahnetwork@gmail.com';
@@ -363,7 +400,7 @@ https://jalsah.network`;
 `;
 
     try {
-      await transporter.sendMail({
+      await this.sendMailWithTimeout(transporter, {
         from: `"نظام جلسة | Jalsah" <${fromAddress}>`,
         to: toEmail,
         subject,
@@ -373,13 +410,18 @@ https://jalsah.network`;
       return true;
     } catch (err) {
       console.error('[EmailService] Failed to send device verification OTP email:', err);
-      throw err;
+      return false;
     }
   }
 
   async sendWelcomeEmail(toEmail: string, networkName: string): Promise<boolean> {
     if (process.env.NODE_ENV === 'test') {
       return true;
+    }
+
+    if (!this.isConfigured()) {
+      console.warn('[EmailService] SMTP not configured (SMTP_USER/SMTP_APP_PASSWORD missing). Skipping sendWelcomeEmail.');
+      return false;
     }
 
     const fromAddress = process.env.SMTP_USER || 'jalsahnetwork@gmail.com';
@@ -527,7 +569,7 @@ https://jalsah.network`;
 </html>`;
 
     try {
-      await transporter.sendMail({
+      await this.sendMailWithTimeout(transporter, {
         from: `"نظام جلسة | Jalsah" <${fromAddress}>`,
         to: toEmail,
         subject,
@@ -537,7 +579,7 @@ https://jalsah.network`;
       return true;
     } catch (err) {
       console.error('[EmailService] Failed to send welcome email:', err);
-      throw err;
+      return false;
     }
   }
 }

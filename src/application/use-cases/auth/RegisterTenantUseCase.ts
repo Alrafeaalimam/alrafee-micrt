@@ -5,7 +5,7 @@
 // ============================================================================
 
 import crypto from 'node:crypto';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client/wasm.js';
 import { prisma as defaultPrisma } from '../../../infrastructure/database/prisma.js';
 import { IAuditLogger } from '../../interfaces/IAuditLogger.js';
 import { IEmailService, defaultEmailService } from '../../../infrastructure/email/EmailService.js';
@@ -99,8 +99,10 @@ export class RegisterTenantUseCase {
     // 4. Hash password
     const passwordHash = await hashPassword(input.password);
 
-    // 5. Calculate 7-day trial expiration
-    const trialEndsAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    // 5. Calculate configurable trial expiration from PlatformSettings (default 7 days)
+    const platformSettings = await this.prisma.platformSettings.findFirst().catch(() => null);
+    const trialDays = (platformSettings as any)?.defaultTrialDays ?? 7;
+    const trialEndsAt = new Date(Date.now() + trialDays * 24 * 60 * 60 * 1000);
 
     // 6. Atomically provision Tenant and initial TENANT_ADMIN user
     const { tenant, user } = await this.prisma.$transaction(async (tx) => {
@@ -152,11 +154,10 @@ export class RegisterTenantUseCase {
 
     // 8. Send welcome email to tenant owner asynchronously (non-blocking)
     if (user.email && this.emailService) {
-      try {
-        await this.emailService.sendWelcomeEmail(user.email, tenant.name);
-      } catch (emailErr) {
-        console.error('[RegisterTenantUseCase] Non-blocking welcome email failed:', emailErr);
-      }
+      Promise.resolve(this.emailService.sendWelcomeEmail(user.email, tenant.name))
+        .catch((emailErr) => {
+          console.error('[RegisterTenantUseCase] Non-blocking welcome email failed:', emailErr);
+        });
     }
 
     // 9. Return pending approval response without JWT per requirements

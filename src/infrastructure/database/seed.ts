@@ -100,7 +100,8 @@ export async function seedSuperAdminUser(
     const emailTaken = await db.user.findFirst({
       where: { tenantId: platformTenantId, email: SUPER_ADMIN_EMAIL },
     });
-    const rawPassword = generateStrongPassword(20);
+    const envPassword = process.env.SUPER_ADMIN_PASSWORD?.trim();
+    const rawPassword = envPassword && envPassword.length >= 8 ? envPassword : generateStrongPassword(20);
     const passwordHash = await hashPassword(rawPassword);
 
     user = await db.user.create({
@@ -124,15 +125,27 @@ export async function seedSuperAdminUser(
     console.log('======================================================================\n');
 
     return { userId: user.id, rawPassword };
-  } else if (user.email !== SUPER_ADMIN_EMAIL) {
-    const emailTaken = await db.user.findFirst({
-      where: { tenantId: platformTenantId, email: SUPER_ADMIN_EMAIL, id: { not: user.id } },
-    });
-    if (!emailTaken) {
+  } else {
+    const envPassword = process.env.SUPER_ADMIN_PASSWORD?.trim();
+    if (process.env.RESET_SUPER_ADMIN_PASSWORD === 'true' && envPassword && envPassword.length >= 8) {
+      const passwordHash = await hashPassword(envPassword);
       user = await db.user.update({
         where: { id: user.id },
-        data: { email: SUPER_ADMIN_EMAIL },
+        data: { passwordHash, status: 'ACTIVE' },
       });
+      console.log(`[Seed Auth] SUPER_ADMIN password successfully updated from SUPER_ADMIN_PASSWORD env.`);
+    }
+
+    if (user.email !== SUPER_ADMIN_EMAIL) {
+      const emailTaken = await db.user.findFirst({
+        where: { tenantId: platformTenantId, email: SUPER_ADMIN_EMAIL, id: { not: user.id } },
+      });
+      if (!emailTaken) {
+        user = await db.user.update({
+          where: { id: user.id },
+          data: { email: SUPER_ADMIN_EMAIL },
+        });
+      }
     }
   }
 
@@ -227,10 +240,65 @@ export async function seedPlatformSettings(db: SeedDbClient = prisma): Promise<v
         primaryColorHex: '#3B2FA0',
         accentColorHex: '#F5C94B',
         appName: 'Jalsah',
+        defaultTrialDays: 7,
       },
     });
     console.log('[Seed] Created default platform settings.');
   }
+}
+
+export async function seedDefaultSubscriptionPlans(prismaClient: any = prisma): Promise<void> {
+  const defaultPlans = [
+    {
+      id: 'plan-1-month',
+      name: 'باقة شهر واحد',
+      durationDays: 30,
+      price: 15000,
+      currency: 'SDG',
+      description: 'اشتراك كامل لمدة شهر واحد مع إمكانية ربط حتى 5 راوترات',
+      maxRoutersLimit: 5,
+      isActive: true,
+    },
+    {
+      id: 'plan-3-months',
+      name: 'باقة 3 أشهر',
+      durationDays: 90,
+      price: 40000,
+      currency: 'SDG',
+      description: 'اشتراك مميز لمدة 3 أشهر مع إمكانية ربط حتى 10 راوترات',
+      maxRoutersLimit: 10,
+      isActive: true,
+    },
+    {
+      id: 'plan-6-months',
+      name: 'باقة 6 أشهر',
+      durationDays: 180,
+      price: 75000,
+      currency: 'SDG',
+      description: 'اشتراك نصف سنوي احترافي مع إمكانية ربط حتى 15 راوتراً',
+      maxRoutersLimit: 15,
+      isActive: true,
+    },
+    {
+      id: 'plan-1-year',
+      name: 'باقة سنة واحدة',
+      durationDays: 365,
+      price: 140000,
+      currency: 'SDG',
+      description: 'اشتراك سنوي شامل بأفضل قيمة مع إمكانية ربط حتى 25 راوتراً',
+      maxRoutersLimit: 25,
+      isActive: true,
+    },
+  ];
+
+  for (const plan of defaultPlans) {
+    await prismaClient.subscriptionPlan.upsert({
+      where: { id: plan.id },
+      update: {},
+      create: plan,
+    });
+  }
+  console.log('[Seed] Default subscription plans ensured (idempotent upsert).');
 }
 
 export async function seedAll(): Promise<{ defaultTenantId: string; platformTenantId: string }> {
@@ -241,6 +309,7 @@ export async function seedAll(): Promise<{ defaultTenantId: string; platformTena
       const defaultTenantId = await seedDefaultTenantInternal(tx);
       const platformTenantId = await seedPlatformTenant(tx);
       await seedPlatformSettings(tx);
+      await seedDefaultSubscriptionPlans(tx);
       return { defaultTenantId, platformTenantId };
     },
     { timeout: 30000 }

@@ -29,7 +29,7 @@
   "private": true,
   "dependencies": {
     "@fastify/cors": "^10.0.2",
-    "@prisma/adapter-pg": "^6.19.0",
+    "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^6.4.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
@@ -43,6 +43,7 @@
     "nodemailer": "^10.0.16",
     "pg": "^8.23.0",
     "prisma": "^6.4.1",
+    "routeros-api": "^1.0.2",
     "typescript": "^5.7.3",
     "zod": "^4.6.5"
   },

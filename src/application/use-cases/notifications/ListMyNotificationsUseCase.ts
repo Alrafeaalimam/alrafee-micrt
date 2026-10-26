@@ -4,7 +4,7 @@
 // Use Case: List Notifications For Authenticated User (Tenant Specific + Broadcast)
 // ============================================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client/wasm.js';
 import { prisma as defaultPrisma } from '../../../infrastructure/database/prisma.js';
 
 export interface ListMyNotificationsInput {

@@ -24,6 +24,7 @@ export async function buildApp() {
     logger: {
       level: process.env['LOG_LEVEL'] || 'info',
     },
+    bodyLimit: 10 * 1024 * 1024, // 10MB to accommodate avatar image uploads
   });
 
   await app.register(cors, {
@@ -81,12 +82,51 @@ export async function buildApp() {
   return app;
 }
 
+import fs from 'node:fs';
+import path from 'node:path';
+import { pgPool } from '../../infrastructure/database/prisma.js';
+import { seedDefaultSubscriptionPlans } from '../../infrastructure/database/seed.js';
+
+async function ensureProductionSchema(log: any) {
+  try {
+    const check = await pgPool.query(
+      `SELECT to_regclass('public.subscription_plans') AS tbl;`
+    );
+    if (!check.rows[0]?.tbl) {
+      log.info('Applying migration 20261024100000_add_subscription_plans_and_requests via pgPool...');
+      const migrationSqlPath = path.resolve(
+        process.cwd(),
+        'prisma/migrations/20261024100000_add_subscription_plans_and_requests/migration.sql'
+      );
+      if (fs.existsSync(migrationSqlPath)) {
+        const sql = fs.readFileSync(migrationSqlPath, 'utf8');
+        await pgPool.query(sql);
+        try {
+          await pgPool.query(`
+            INSERT INTO "_prisma_migrations" ("id", "checksum", "finished_at", "migration_name", "logs", "rolled_back_at", "started_at", "applied_steps_count")
+            VALUES (gen_random_uuid()::text, '', now(), '20261024100000_add_subscription_plans_and_requests', '', null, now(), 1)
+            ON CONFLICT ("migration_name") DO NOTHING;
+          `);
+        } catch (_) {}
+        log.info('Migration applied successfully.');
+      }
+    }
+
+    // Ensure default subscription plans are present (idempotent upsert)
+    await seedDefaultSubscriptionPlans();
+    log.info('Default subscription plans ensured.');
+  } catch (err: any) {
+    log.warn({ err: err.message }, 'Notice during startup schema verification');
+  }
+}
+
 export async function startServer() {
   const app = await buildApp();
   const port = parseInt(process.env.PORT || '3000', 10);
   const host = process.env.HOST || '0.0.0.0';
 
   try {
+    await ensureProductionSchema(app.log);
     const address = await app.listen({ port, host });
     app.log.info(`MikroTik Cards Backend running on ${address}`);
     return app;

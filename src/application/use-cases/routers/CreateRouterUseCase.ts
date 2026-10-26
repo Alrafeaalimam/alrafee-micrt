@@ -10,7 +10,7 @@ import {
   CreateRouterData,
 } from '../../interfaces/IRouterRepository.js';
 import { IAuditLogger } from '../../interfaces/IAuditLogger.js';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client/wasm.js';
 import { prisma as defaultPrisma } from '../../../infrastructure/database/prisma.js';
 
 export type CreateRouterInput = CreateRouterData & {
