@@ -20,6 +20,7 @@ export const CARD_STATUSES = [
 
 export const generateBatchSchema = z.object({
   packageId: z.string().uuid('Package ID must be a valid UUID'),
+  routerId: z.string().uuid('Router ID must be a valid UUID').optional(),
   quantity: z
     .number()
     .int('Quantity must be an integer')
@@ -32,6 +33,7 @@ export const generateBatchSchema = z.object({
     .optional(),
   userLength: z.number().int().min(4).max(16).default(6).optional(),
   passwordLength: z.number().int().min(4).max(16).default(4).optional(),
+  generationMode: z.enum(['USERNAME_AND_PASSWORD', 'NUMBERS_ONLY']).default('USERNAME_AND_PASSWORD').optional(),
 });
 
 export type GenerateBatchBody = z.infer<typeof generateBatchSchema>;

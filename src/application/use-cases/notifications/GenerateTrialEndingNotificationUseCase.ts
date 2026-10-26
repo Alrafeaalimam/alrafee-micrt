@@ -4,7 +4,7 @@
 // Use Case: Automatically Generate Trial Ending Notifications (Prevent duplication within 24h)
 // ============================================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client/wasm.js';
 import { prisma as defaultPrisma } from '../../../infrastructure/database/prisma.js';
 
 export interface GenerateTrialEndingInput {

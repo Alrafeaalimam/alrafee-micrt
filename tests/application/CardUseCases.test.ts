@@ -34,6 +34,43 @@ import {
   CardStatus,
 } from '../../src/domain/state-machines/CardStateMachine.js';
 import { InvalidCardTransitionException } from '../../src/domain/exceptions/InvalidCardTransitionException.js';
+import { MockRouterConnector } from '../../src/infrastructure/mikrotik/adapters/MockRouterConnector.js';
+import { IRouterRepository } from '../../src/application/interfaces/IRouterRepository.js';
+
+class InMemoryRouterRepository implements IRouterRepository {
+  public routers: any[] = [];
+  async create(data: any): Promise<any> {
+    const r = { id: `r-${Date.now()}`, ...data };
+    this.routers.push(r);
+    return r;
+  }
+  async findById(id: string, tenantId: string): Promise<any> {
+    return this.routers.find((r) => r.id === id && r.tenantId === tenantId) || null;
+  }
+  async findAllByTenant(tenantId: string): Promise<any[]> {
+    return this.routers.filter((r) => r.tenantId === tenantId);
+  }
+  async update(id: string, tenantId: string, data: any): Promise<any> {
+    const idx = this.routers.findIndex((r) => r.id === id && r.tenantId === tenantId);
+    if (idx === -1) throw new Error('not found');
+    this.routers[idx] = { ...this.routers[idx], ...data };
+    return this.routers[idx];
+  }
+  async delete(id: string, tenantId: string): Promise<void> {
+    this.routers = this.routers.filter((r) => !(r.id === id && r.tenantId === tenantId));
+  }
+  async getDecryptedCredentials(id: string, tenantId: string): Promise<any> {
+    const r = this.routers.find((r) => r.id === id && r.tenantId === tenantId);
+    if (!r) return null;
+    return {
+      username: 'admin',
+      password: 'password123',
+      connectionMethod: 'ROUTEROS_API_SSL',
+      host: r.host,
+      apiPort: r.apiPort || 8729,
+    };
+  }
+}
 
 // In-Memory Fakes
 class InMemoryAuditLogger implements IAuditLogger {
@@ -396,6 +433,106 @@ describe('Card & Card Batch Use Cases Unit Tests', () => {
         },
         { message: /Quantity must be an integer between 1 and 1000/ }
       );
+    });
+
+    it('should successfully provision hotspot users on router via connector when routerId is provided', async () => {
+      const inMemRouterRepo = new InMemoryRouterRepository();
+      const mockConnector = new MockRouterConnector();
+
+      const router = await inMemRouterRepo.create({
+        tenantId: TENANT_1,
+        name: 'Main Router',
+        host: '192.168.88.1',
+        apiPort: 8729,
+        connectionMethod: 'ROUTEROS_API_SSL',
+        username: 'admin',
+        password: 'password123',
+      });
+
+      const useCaseWithRouter = new GenerateCardBatchUseCase(
+        batchRepo,
+        cardRepo,
+        packageRepo,
+        auditLogger,
+        inMemRouterRepo,
+        mockConnector
+      );
+
+      const quantity = 3;
+      const result = await useCaseWithRouter.execute({
+        tenantId: TENANT_1,
+        packageId: activePackage.id,
+        quantity,
+        createdById: USER_ID,
+        routerId: router.id,
+      });
+
+      assert.strictEqual(result.cards.length, quantity);
+      for (const card of result.cards) {
+        assert.strictEqual(card.routerId, router.id);
+      }
+
+      // Verify users exist on the connector with speed and uptime limits applied
+      const usersRes = await mockConnector.getHotspotUsers({
+        host: '192.168.88.1',
+        port: 8729,
+        username: 'admin',
+        password: 'password123',
+      });
+      assert.strictEqual(usersRes.success, true);
+      if (usersRes.success) {
+        const usernames = usersRes.data.map((u) => u.username);
+        for (const card of result.cards) {
+          assert.ok(usernames.includes(card.username));
+          const mockUser = (mockConnector as any).hotspotUsersMap.get(card.username);
+          assert.ok(mockUser, 'Mock user should be recorded in mock connector');
+          assert.strictEqual(mockUser.rateLimit, '2M/5M');
+          assert.strictEqual(mockUser.limitUptimeSeconds, 1440 * 60);
+          assert.strictEqual(mockUser.profile, 'hs_daily_5m');
+        }
+      }
+    });
+
+    it('should handle partial failure and rollback router users when connector rejects a user', async () => {
+      const inMemRouterRepo = new InMemoryRouterRepository();
+      const mockConnector = new MockRouterConnector();
+
+      // Configure host 'fail.test' which mockConnector rejects
+      const router = await inMemRouterRepo.create({
+        tenantId: TENANT_1,
+        name: 'Failing Router',
+        host: 'fail.test',
+        apiPort: 8729,
+        connectionMethod: 'ROUTEROS_API_SSL',
+        username: 'admin',
+        password: 'password123',
+      });
+
+      const useCaseWithRouter = new GenerateCardBatchUseCase(
+        batchRepo,
+        cardRepo,
+        packageRepo,
+        auditLogger,
+        inMemRouterRepo,
+        mockConnector
+      );
+
+      await assert.rejects(
+        async () => {
+          await useCaseWithRouter.execute({
+            tenantId: TENANT_1,
+            packageId: activePackage.id,
+            quantity: 5,
+            createdById: USER_ID,
+            routerId: router.id,
+          });
+        },
+        { message: /فشل إنشاء بطاقات الهوتسبوت على الراوتر/ }
+      );
+
+      // Verify no cards were saved in the repository
+      const allCards = await cardRepo.findAllByTenant(TENANT_1);
+      assert.strictEqual(allCards.length, 0);
     });
   });
 

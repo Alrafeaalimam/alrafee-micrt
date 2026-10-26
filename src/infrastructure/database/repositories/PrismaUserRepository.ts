@@ -6,7 +6,7 @@
 
 import crypto from 'node:crypto';
 import { prisma as defaultPrisma } from '../prisma.js';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client/wasm.js';
 import {
   IUserRepository,
   User,

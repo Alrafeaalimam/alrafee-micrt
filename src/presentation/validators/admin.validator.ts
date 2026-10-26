@@ -81,3 +81,61 @@ export const createSuperAdminSchema = z.object({
 
 export type CreateSuperAdminInputDto = z.infer<typeof createSuperAdminSchema>;
 
+export const createSubscriptionPlanSchema = z.object({
+  name: z.string().trim().min(2, 'اسم الباقة مطلوب').max(100),
+  durationDays: z.number().int().positive('المدة يجب أن تكون يوماً واحداً على الأقل'),
+  price: z.number().positive('السعر يجب أن يكون أكبر من صفر'),
+  currency: z.string().trim().min(1).default('SDG'),
+  description: z.string().trim().optional(),
+  maxRoutersLimit: z.number().int().positive().default(5),
+  isActive: z.boolean().default(true),
+});
+
+export type CreateSubscriptionPlanInputDto = z.infer<typeof createSubscriptionPlanSchema>;
+
+export const updateSubscriptionPlanSchema = createSubscriptionPlanSchema.partial();
+
+export type UpdateSubscriptionPlanInputDto = z.infer<typeof updateSubscriptionPlanSchema>;
+
+export const requestActivationSchema = z.object({
+  planId: z.string().trim().min(1, 'معرف الباقة مطلوب'),
+  paymentMethodId: z.string().trim().optional(),
+  senderName: z.string().trim().max(100, 'اسم صاحب التحويل يجب ألا يتجاوز 100 حرف').optional(),
+  referenceNumber: z.string().trim().max(100, 'رقم العملية المرجعي يجب ألا يتجاوز 100 حرف').optional(),
+  receiptImageBase64: z.string().optional(),
+  notes: z.string().trim().max(500, 'الملاحظات يجب ألا تتجاوز 500 حرف').optional(),
+});
+
+export type RequestActivationInputDto = z.infer<typeof requestActivationSchema>;
+
+export const reviewSubscriptionRequestSchema = z.object({
+  reviewNotes: z.string().trim().max(500, 'ملاحظات المراجعة يجب ألا تتجاوز 500 حرف').optional(),
+});
+
+export type ReviewSubscriptionRequestInputDto = z.infer<typeof reviewSubscriptionRequestSchema>;
+
+export const createPaymentMethodSchema = z.object({
+  providerName: z.string().trim().min(2, 'اسم مزود الدفع مطلوب (حرفان على الأقل)').max(100),
+  accountName: z.string().trim().min(2, 'اسم الحساب مطلوب').max(100),
+  accountNumber: z.string().trim().min(3, 'رقم الحساب أو الآيبان مطلوب').max(100),
+  beneficiaryName: z.string().trim().max(100).optional(),
+  instructions: z.string().trim().max(500).optional(),
+  currency: z.string().trim().max(10).optional().default('SDG'),
+  isActive: z.boolean().optional().default(true),
+  displayOrder: z.number().int().optional().default(0),
+});
+
+export type CreatePaymentMethodInputDto = z.infer<typeof createPaymentMethodSchema>;
+
+export const updatePaymentMethodSchema = z.object({
+  providerName: z.string().trim().min(2).max(100).optional(),
+  accountName: z.string().trim().min(2).max(100).optional(),
+  accountNumber: z.string().trim().min(3).max(100).optional(),
+  beneficiaryName: z.string().trim().max(100).optional().nullable(),
+  instructions: z.string().trim().max(500).optional().nullable(),
+  currency: z.string().trim().max(10).optional(),
+  isActive: z.boolean().optional(),
+  displayOrder: z.number().int().optional(),
+});
+
+export type UpdatePaymentMethodInputDto = z.infer<typeof updatePaymentMethodSchema>;

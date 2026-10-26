@@ -4,7 +4,7 @@
 // Use Case: List Users of a Specific Tenant for Platform Super Admin
 // ============================================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client/wasm.js';
 import { prisma as defaultPrisma } from '../../../infrastructure/database/prisma.js';
 
 export interface AdminTenantUserSummary {

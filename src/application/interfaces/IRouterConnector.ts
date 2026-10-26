@@ -14,6 +14,10 @@ export interface RouterInfo {
   readonly boardName: string;
   readonly cpuLoad: number;
   readonly uptimeSeconds: number;
+  readonly model?: string | undefined;
+  readonly architectureName?: string | undefined;
+  readonly freeMemoryBytes?: number | undefined;
+  readonly totalMemoryBytes?: number | undefined;
 }
 
 export interface RouterCredentialsInput {
@@ -21,12 +25,43 @@ export interface RouterCredentialsInput {
   readonly port: number;
   readonly username: string;
   readonly password: string;
+  readonly connectionMethod?:
+    | 'ROUTEROS_API_SSL'
+    | 'ROUTEROS_API_PLAIN'
+    | 'REST_API_HTTPS'
+    | 'REST_API_PLAIN'
+    | 'SSH_TUNNEL'
+    | undefined;
+  readonly caCertificate?: string | undefined;
+  readonly certificateFingerprint?: string | undefined;
+  readonly tlsRejectUnauthorized?: boolean | undefined;
 }
 
 export interface HotspotUser {
   readonly username: string;
   readonly profile: string;
   readonly isEnabled: boolean;
+  readonly uptimeSeconds?: number | undefined;
+  readonly bytesIn?: number | bigint | undefined;
+  readonly bytesOut?: number | bigint | undefined;
+  readonly comment?: string | undefined;
+}
+
+export interface HotspotSession {
+  readonly id?: string | undefined;
+  readonly username: string;
+  readonly ipAddress?: string | undefined;
+  readonly macAddress?: string | undefined;
+  readonly uptimeSeconds?: number | undefined;
+  readonly bytesIn?: number | bigint | undefined;
+  readonly bytesOut?: number | bigint | undefined;
+}
+
+export interface CreateHotspotUserOptions {
+  readonly limitUptimeSeconds?: number | undefined;
+  readonly limitBytesTotal?: number | bigint | undefined;
+  readonly rateLimit?: string | undefined;
+  readonly comment?: string | undefined;
 }
 
 /**
@@ -45,12 +80,14 @@ export type RouterConnectorResult<T> =
 export interface IRouterConnector {
   testConnection(
     creds: RouterCredentialsInput,
-    timeoutMs?: number
+    timeoutMs?: number,
+    signal?: AbortSignal
   ): Promise<RouterConnectorResult<RouterInfo>>;
 
   getRouterInfo(
     creds: RouterCredentialsInput,
-    timeoutMs?: number
+    timeoutMs?: number,
+    signal?: AbortSignal
   ): Promise<RouterConnectorResult<RouterInfo>>;
 
   getHotspotUsers(
@@ -58,11 +95,23 @@ export interface IRouterConnector {
     timeoutMs?: number
   ): Promise<RouterConnectorResult<HotspotUser[]>>;
 
+  getHotspotActiveSessions(
+    creds: RouterCredentialsInput,
+    timeoutMs?: number
+  ): Promise<RouterConnectorResult<HotspotSession[]>>;
+
   createHotspotUser(
     creds: RouterCredentialsInput,
     username: string,
     password: string,
     profile: string,
+    options?: CreateHotspotUserOptions,
+    timeoutMs?: number
+  ): Promise<RouterConnectorResult<void>>;
+
+  enableHotspotUser(
+    creds: RouterCredentialsInput,
+    username: string,
     timeoutMs?: number
   ): Promise<RouterConnectorResult<void>>;
 

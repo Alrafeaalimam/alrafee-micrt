@@ -4,7 +4,7 @@
 // Use Case: Update Platform Settings (Super Admin Only)
 // ============================================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client/wasm.js';
 import { prisma as defaultPrisma } from '../../../infrastructure/database/prisma.js';
 import { IAuditLogger } from '../../interfaces/IAuditLogger.js';
 import { defaultAuditLogger } from '../../../infrastructure/logging/AuditLogger.js';
@@ -18,6 +18,7 @@ export interface UpdatePlatformSettingsInput {
     primaryColorHex?: string | null;
     accentColorHex?: string | null;
     appName?: string;
+    defaultTrialDays?: number;
   };
 }
 
@@ -28,6 +29,7 @@ export interface PlatformSettingsOutput {
   primaryColorHex: string | null;
   accentColorHex: string | null;
   appName: string;
+  defaultTrialDays: number;
   updatedAt: Date;
   message: string;
 }
@@ -67,6 +69,12 @@ export class UpdatePlatformSettingsUseCase {
       }
     }
 
+    if (data.defaultTrialDays !== undefined) {
+      if (!Number.isInteger(data.defaultTrialDays) || data.defaultTrialDays < 1) {
+        throw new Error('مدة الفترة التجريبية الافتراضية يجب أن تكون يوماً واحداً على الأقل');
+      }
+    }
+
     // 2. Fetch existing settings (or create initial)
     let currentSettings = await this.prisma.platformSettings.findFirst();
     if (!currentSettings) {
@@ -78,6 +86,7 @@ export class UpdatePlatformSettingsUseCase {
           primaryColorHex: '#3B2FA0',
           accentColorHex: '#F5C94B',
           appName: 'Jalsah',
+          defaultTrialDays: 7,
         },
       });
     }
@@ -91,6 +100,7 @@ export class UpdatePlatformSettingsUseCase {
     if (data.primaryColorHex !== undefined) updateData['primaryColorHex'] = data.primaryColorHex;
     if (data.accentColorHex !== undefined) updateData['accentColorHex'] = data.accentColorHex;
     if (data.appName !== undefined) updateData['appName'] = data.appName.trim();
+    if (data.defaultTrialDays !== undefined) updateData['defaultTrialDays'] = data.defaultTrialDays;
 
     const updated = await this.prisma.platformSettings.update({
       where: { id: currentSettings.id },
@@ -134,6 +144,7 @@ export class UpdatePlatformSettingsUseCase {
       primaryColorHex: updated.primaryColorHex,
       accentColorHex: updated.accentColorHex,
       appName: updated.appName,
+      defaultTrialDays: (updated as any).defaultTrialDays ?? 7,
       updatedAt: updated.updatedAt,
       message: 'تم تحديث إعدادات المنصة بنجاح',
     };

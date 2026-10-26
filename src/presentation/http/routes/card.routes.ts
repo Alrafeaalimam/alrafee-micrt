@@ -17,8 +17,13 @@ import { UpdateCardStatusUseCase } from '../../../application/use-cases/cards/Up
 import { PrismaCardRepository } from '../../../infrastructure/database/repositories/PrismaCardRepository.js';
 import { PrismaCardBatchRepository } from '../../../infrastructure/database/repositories/PrismaCardBatchRepository.js';
 import { PrismaPackageRepository } from '../../../infrastructure/database/repositories/PrismaPackageRepository.js';
+import { PrismaRouterRepository } from '../../../infrastructure/database/repositories/PrismaRouterRepository.js';
+import { RealRouterConnector } from '../../../infrastructure/mikrotik/adapters/RealRouterConnector.js';
+import { MockRouterConnector } from '../../../infrastructure/mikrotik/adapters/MockRouterConnector.js';
 import { AuditLogger } from '../../../infrastructure/logging/AuditLogger.js';
 import { InvalidCardTransitionException } from '../../../domain/exceptions/InvalidCardTransitionException.js';
+import { TrialCardGenerationLockedException } from '../../../domain/exceptions/TrialCardGenerationLockedException.js';
+import { subscriptionGuard } from '../../../infrastructure/security/SubscriptionGuard.js';
 import { authMiddleware } from '../middlewares/authMiddleware.js';
 import { subscriptionMiddleware } from '../middlewares/subscriptionMiddleware.js';
 
@@ -33,13 +38,20 @@ export const cardRoutes: FastifyPluginAsync = async (
   const packageRepository = new PrismaPackageRepository();
   const cardBatchRepository = new PrismaCardBatchRepository();
   const cardRepository = new PrismaCardRepository();
+  const routerRepository = new PrismaRouterRepository();
+  const routerConnector = process.env.USE_MOCK_ROUTER === 'true'
+    ? new MockRouterConnector()
+    : new RealRouterConnector();
   const auditLogger = new AuditLogger();
 
   const generateCardBatchUseCase = new GenerateCardBatchUseCase(
     cardBatchRepository,
     cardRepository,
     packageRepository,
-    auditLogger
+    auditLogger,
+    routerRepository,
+    routerConnector,
+    subscriptionGuard
   );
   const listCardsUseCase = new ListCardsUseCase(cardRepository);
   const updateCardStatusUseCase = new UpdateCardStatusUseCase(
@@ -76,6 +88,14 @@ export const cardRoutes: FastifyPluginAsync = async (
         data: result,
       });
     } catch (err: any) {
+      if (err instanceof TrialCardGenerationLockedException || err.code === 'TRIAL_CARD_GENERATION_LOCKED') {
+        return reply.status(403).send({
+          success: false,
+          errorCode: 'TRIAL_CARD_GENERATION_LOCKED',
+          errorMessage: err.message,
+        });
+      }
+
       if (err.message?.includes('not found')) {
         return reply.status(404).send({
           success: false,
@@ -97,6 +117,27 @@ export const cardRoutes: FastifyPluginAsync = async (
         success: false,
         errorCode: 'INTERNAL_ERROR',
         errorMessage: err.message || 'Failed to generate card batch',
+      });
+    }
+  });
+
+  // --------------------------------------------------------------------------
+  // 1b. GET /api/v1/cards/batches (List Card Batches for Tenant)
+  // --------------------------------------------------------------------------
+  fastify.get('/batches', async (request, reply) => {
+    try {
+      const { tenantId } = request.user!;
+      const batches = await cardBatchRepository.findAllByTenant(tenantId);
+      return reply.status(200).send({
+        success: true,
+        data: batches,
+      });
+    } catch (err: any) {
+      fastify.log.error(err, 'Failed to list card batches');
+      return reply.status(500).send({
+        success: false,
+        errorCode: 'INTERNAL_ERROR',
+        errorMessage: err.message || 'Failed to list card batches',
       });
     }
   });

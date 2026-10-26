@@ -5,7 +5,7 @@
 // ============================================================================
 
 import bcrypt from 'bcryptjs';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client/wasm.js';
 import { prisma as defaultPrisma } from '../../../infrastructure/database/prisma.js';
 import { hashPassword } from '../../../infrastructure/security/password.js';
 import { IAuditLogger } from '../../interfaces/IAuditLogger.js';

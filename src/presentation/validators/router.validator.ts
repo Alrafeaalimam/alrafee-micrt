@@ -11,6 +11,12 @@ export const testRouterConnectionSchema = z.object({
   port: z.number().int().min(1, 'Port must be >= 1').max(65535, 'Port must be <= 65535'),
   username: z.string().trim().min(1, 'Username cannot be empty'),
   password: z.string().min(1, 'Password cannot be empty'),
+  connectionMethod: z
+    .enum(['ROUTEROS_API_SSL', 'ROUTEROS_API_PLAIN', 'REST_API_HTTPS', 'REST_API_PLAIN', 'SSH_TUNNEL'])
+    .optional(),
+  caCertificate: z.string().optional(),
+  certificateFingerprint: z.string().optional(),
+  tlsRejectUnauthorized: z.boolean().optional(),
 });
 
 export type TestRouterConnectionBody = z.infer<typeof testRouterConnectionSchema>;
@@ -22,8 +28,9 @@ export const createRouterSchema = z.object({
   username: z.string().trim().min(1, 'Username is required'),
   password: z.string().min(1, 'Password is required'),
   connectionMethod: z
-    .enum(['ROUTEROS_API_SSL', 'ROUTEROS_API_PLAIN', 'REST_API_HTTPS', 'SSH_TUNNEL'])
+    .enum(['ROUTEROS_API_SSL', 'ROUTEROS_API_PLAIN', 'REST_API_HTTPS', 'REST_API_PLAIN', 'SSH_TUNNEL'])
     .optional(),
+  certificateFingerprint: z.string().optional(),
   backupEnabled: z.boolean().optional(),
 });
 
@@ -36,8 +43,9 @@ export const updateRouterSchema = z.object({
   username: z.string().trim().min(1).optional(),
   password: z.string().min(1).optional(),
   connectionMethod: z
-    .enum(['ROUTEROS_API_SSL', 'ROUTEROS_API_PLAIN', 'REST_API_HTTPS', 'SSH_TUNNEL'])
+    .enum(['ROUTEROS_API_SSL', 'ROUTEROS_API_PLAIN', 'REST_API_HTTPS', 'REST_API_PLAIN', 'SSH_TUNNEL'])
     .optional(),
+  certificateFingerprint: z.string().optional(),
   backupEnabled: z.boolean().optional(),
 });
 

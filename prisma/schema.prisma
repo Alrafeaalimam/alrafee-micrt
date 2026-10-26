@@ -46,6 +46,13 @@ enum ApprovalStatus {
   REJECTED
 }
 
+enum SubscriptionRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
 enum LicenseCodeStatus {
   UNUSED
   USED
@@ -70,6 +77,7 @@ enum ConnectionMethod {
   ROUTEROS_API_SSL    // منفذ 8729 TLS (Recommended)
   ROUTEROS_API_PLAIN  // منفذ 8728 (LAN Only)
   REST_API_HTTPS      // RouterOS v7+
+  REST_API_PLAIN      // RouterOS v7+ HTTP
   SSH_TUNNEL          // نفق آمن للراوترات خلف NAT
 }
 
@@ -148,6 +156,7 @@ model Tenant {
   auditLogs       AuditLog[]
   licenseCodes    LicenseCode[]
   notifications   Notification[]
+  subscriptionRequests SubscriptionRequest[]
 
   @@index([status])
   @@index([approvalStatus])
@@ -163,6 +172,7 @@ model User {
   passwordHash    String       // Argon2id / bcrypt
   fullName        String       // اسم الموظف
   phone           String?
+  avatarUrl       String?      // رابط أو مسار صورة الملف الشخصي
   role            UserRole     @default(OPERATOR)
   status          UserStatus   @default(ACTIVE)
   lastLoginAt     DateTime?
@@ -179,6 +189,7 @@ model User {
   notificationReads NotificationRead[]
   trustedDevices    TrustedDevice[]
   loginOtps         LoginOtp[]
+  subscriptionRequests SubscriptionRequest[]
 
   @@unique([tenantId, username])
   @@unique([tenantId, email])
@@ -538,6 +549,7 @@ model PlatformSettings {
   primaryColorHex String?
   accentColorHex  String?
   appName         String   @default("Jalsah")
+  defaultTrialDays Int     @default(7)
   updatedAt       DateTime @updatedAt
 
   @@map("platform_settings")
@@ -614,4 +626,74 @@ model LoginOtp {
   @@map("login_otps")
 }
 
+// ----------------------------------------------------------------------------
+// 13. SUBSCRIPTION PLANS & ACTIVATION REQUESTS (باقات الاشتراك وطلبات التفعيل)
+// ----------------------------------------------------------------------------
 
+model SubscriptionPlan {
+  id              String                @id @default(uuid())
+  name            String                // مثل: "باقة شهر واحد", "باقة 3 أشهر"
+  durationDays    Int                   // 30, 90, 180, 365
+  price           Decimal               @db.Decimal(10, 2)
+  currency        String                @default("SDG")
+  description     String?
+  maxRoutersLimit Int                   @default(5)
+  isActive        Boolean               @default(true)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  // العلاقات
+  requests        SubscriptionRequest[]
+
+  @@map("subscription_plans")
+}
+
+model ManualPaymentMethod {
+  id              String                @id @default(uuid())
+  providerName    String                // اسم البنك أو مزود الدفع (مثل: بنكك - بنك الخرطوم، فوري، أوكاش)
+  accountName     String                // اسم صاحب الحساب
+  accountNumber   String                // رقم الحساب أو الآيبان
+  beneficiaryName String?               // اسم المستفيد
+  instructions    String?               // تعليمات التحويل
+  currency        String                @default("SDG")
+  isActive        Boolean               @default(true)
+  displayOrder    Int                   @default(0)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  requests        SubscriptionRequest[]
+
+  @@map("manual_payment_methods")
+}
+
+model SubscriptionRequest {
+  id                   String                    @id @default(uuid())
+  tenantId             String
+  userId               String
+  planId               String
+  paymentMethodId      String?
+  status               SubscriptionRequestStatus @default(PENDING)
+  senderName           String?                   // اسم المحوّل أو صاحب الحساب
+  referenceNumber      String?                   // رقم العملية المرجعي للإشعار
+  receiptUrl           String?                   // مسار أو رابط صورة إشعار التحويل
+  notes                String?
+  reviewNotes          String?
+  reviewedByUserId     String?
+  reviewedAt           DateTime?
+  priceSnapshot        Decimal                   @db.Decimal(10, 2)
+  currencySnapshot     String
+  durationDaysSnapshot Int
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
+
+  // العلاقات
+  tenant               Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user                 User                      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan                 SubscriptionPlan          @relation(fields: [planId], references: [id], onDelete: Restrict)
+  paymentMethod        ManualPaymentMethod?      @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([status])
+  @@index([referenceNumber])
+  @@map("subscription_requests")
+}

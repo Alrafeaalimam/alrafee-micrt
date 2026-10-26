@@ -4,7 +4,7 @@
 // Use Case: List All Generated License Codes for Platform Super Admin
 // ============================================================================
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client/wasm.js';
 import { prisma as defaultPrisma } from '../../../infrastructure/database/prisma.js';
 
 export interface LicenseCodeItem {
