@@ -272,4 +272,120 @@ describe('Manual Payment Methods, Receipt Flow & Router Validation Tests', () =>
 
     assert.strictEqual(res.statusCode, 403);
   });
+
+  test('9. Router creation and update accept verified ONLINE status and live hardware specs', async () => {
+    const createRes = await app.inject({
+      method: 'POST',
+      url: '/api/v1/routers',
+      headers: { authorization: `Bearer ${tenantAdminToken}` },
+      payload: {
+        name: 'Main Verified Router',
+        host: '10.0.0.1',
+        port: 8728,
+        username: 'admin',
+        password: 'password123',
+        connectionMethod: 'ROUTEROS_API_PLAIN',
+        status: 'ONLINE',
+        routerOsVersion: '7.15.2',
+        boardModel: 'RB4011iGS+5HacQ2HnD',
+        cpuLoadPercentage: 12,
+        uptimeSeconds: 86400,
+      },
+    });
+
+    assert.strictEqual(createRes.statusCode, 201);
+    const body = createRes.json();
+    assert.strictEqual(body.success, true);
+    assert.strictEqual(body.data.status, 'ONLINE');
+    assert.strictEqual(body.data.boardModel, 'RB4011iGS+5HacQ2HnD');
+    assert.strictEqual(body.data.routerOsVersion, '7.15.2');
+
+    // Update status
+    const updateRes = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/routers/${body.data.id}`,
+      headers: { authorization: `Bearer ${tenantAdminToken}` },
+      payload: {
+        status: 'ONLINE',
+        cpuLoadPercentage: 25,
+      },
+    });
+
+    assert.strictEqual(updateRes.statusCode, 200);
+    const updateBody = updateRes.json();
+    assert.strictEqual(updateBody.data.status, 'ONLINE');
+    assert.strictEqual(updateBody.data.cpuLoadPercentage, 25);
+  });
+
+  test('10. Super Admin can create payment method specifying iban and instructions', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/payment-methods',
+      headers: { authorization: `Bearer ${superAdminToken}` },
+      payload: {
+        providerName: 'بنك أم درمان الوطني',
+        accountName: 'أحمد الرفيع',
+        accountNumber: '987654321',
+        iban: 'SD98ONB00000000987654321',
+        instructions: 'يرجى إرفاق إشعار أوكاش أو التحويل البنكي',
+        currency: 'SDG',
+        isActive: true,
+      },
+    });
+
+    assert.strictEqual(res.statusCode, 201);
+    const body = res.json();
+    assert.strictEqual(body.success, true);
+    assert.strictEqual(body.data.providerName, 'بنك أم درمان الوطني');
+    assert.strictEqual(body.data.beneficiaryName, 'SD98ONB00000000987654321');
+  });
+
+  test('11. Card generation accepts NUMBERS_ONLY with passwordLength: 0 and routerId: null', async () => {
+    // Create an active package first
+    const pkg = await prisma.package.create({
+      data: {
+        tenantId,
+        name: 'باقة 1 جيجا اختبار',
+        code: `PKG-TEST-${Date.now()}`,
+        downloadSpeedLimit: '5M',
+        uploadSpeedLimit: '2M',
+        durationMinutes: 1440,
+        validityDays: 1,
+        price: 500,
+        hotspotProfileName: 'default',
+        isActive: true,
+      },
+    });
+
+    // Make sure tenant is ACTIVE so trial card generation is not locked
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data: { status: 'ACTIVE', subscriptionStatus: 'ACTIVE' },
+    });
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/cards/generate-batch',
+      headers: { authorization: `Bearer ${tenantAdminToken}` },
+      payload: {
+        packageId: pkg.id,
+        quantity: 5,
+        routerId: null,
+        prefix: null,
+        userLength: 8,
+        passwordLength: 0,
+        generationMode: 'NUMBERS_ONLY',
+      },
+    });
+
+    assert.strictEqual(res.statusCode, 201);
+    const body = res.json();
+    assert.strictEqual(body.success, true);
+    assert.strictEqual(body.data.cards.length, 5);
+    // All cards have numeric username and empty password
+    for (const card of body.data.cards) {
+      assert.match(card.username, /^\d{8}$/);
+      assert.strictEqual(card.password, '');
+    }
+  });
 });

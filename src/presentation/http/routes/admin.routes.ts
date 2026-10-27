@@ -1056,7 +1056,7 @@ export const adminRoutes: FastifyPluginAsync = async (
           providerName: d.providerName,
           accountName: d.accountName,
           accountNumber: d.accountNumber,
-          beneficiaryName: d.beneficiaryName ?? null,
+          beneficiaryName: d.beneficiaryName ?? (d as any).iban ?? null,
           instructions: d.instructions ?? null,
           currency: d.currency ?? 'SDG',
           isActive: d.isActive ?? true,
