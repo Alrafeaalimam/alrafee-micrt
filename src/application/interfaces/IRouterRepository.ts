@@ -62,6 +62,11 @@ export interface CreateRouterData {
   username: string;
   password: string;
   backupEnabled?: boolean | undefined;
+  status?: RouterStatusType | undefined;
+  routerOsVersion?: string | null | undefined;
+  boardModel?: string | null | undefined;
+  cpuLoadPercentage?: number | null | undefined;
+  uptimeSeconds?: bigint | number | null | undefined;
   metadata?: any | undefined;
 }
 
@@ -74,6 +79,11 @@ export interface UpdateRouterData {
   password?: string | undefined;
   backupEnabled?: boolean | undefined;
   status?: RouterStatusType | undefined;
+  routerOsVersion?: string | null | undefined;
+  boardModel?: string | null | undefined;
+  cpuLoadPercentage?: number | null | undefined;
+  uptimeSeconds?: bigint | number | null | undefined;
+  lastErrorMessage?: string | null | undefined;
   metadata?: any | undefined;
 }
 

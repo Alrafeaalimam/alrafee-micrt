@@ -28,6 +28,13 @@ export class PrismaRouterRepository implements IRouterRepository {
         host: data.host,
         apiPort: data.apiPort ?? 8729,
         connectionMethod: (data.connectionMethod as any) ?? 'ROUTEROS_API_SSL',
+        status: (data.status as any) ?? 'OFFLINE',
+        routerOsVersion: data.routerOsVersion ?? null,
+        boardModel: data.boardModel ?? null,
+        cpuLoadPercentage: data.cpuLoadPercentage ?? null,
+        uptimeSeconds: data.uptimeSeconds ? BigInt(data.uptimeSeconds) : null,
+        lastSeenAt: data.status === 'ONLINE' ? new Date() : null,
+        lastHealthCheckAt: data.status ? new Date() : null,
         backupEnabled: data.backupEnabled ?? true,
         metadata: data.metadata ?? null,
         credentials: {
@@ -94,7 +101,21 @@ export class PrismaRouterRepository implements IRouterRepository {
     if (data.host !== undefined) updateRouterData.host = data.host;
     if (data.apiPort !== undefined) updateRouterData.apiPort = data.apiPort;
     if (data.connectionMethod !== undefined) updateRouterData.connectionMethod = data.connectionMethod;
-    if (data.status !== undefined) updateRouterData.status = data.status;
+    if (data.status !== undefined) {
+      updateRouterData.status = data.status;
+      updateRouterData.lastHealthCheckAt = new Date();
+      if (data.status === 'ONLINE') {
+        updateRouterData.lastSeenAt = new Date();
+        updateRouterData.lastErrorMessage = null;
+      }
+    }
+    if (data.routerOsVersion !== undefined) updateRouterData.routerOsVersion = data.routerOsVersion;
+    if (data.boardModel !== undefined) updateRouterData.boardModel = data.boardModel;
+    if (data.cpuLoadPercentage !== undefined) updateRouterData.cpuLoadPercentage = data.cpuLoadPercentage;
+    if (data.uptimeSeconds !== undefined) {
+      updateRouterData.uptimeSeconds = data.uptimeSeconds ? BigInt(data.uptimeSeconds) : null;
+    }
+    if (data.lastErrorMessage !== undefined) updateRouterData.lastErrorMessage = data.lastErrorMessage;
     if (data.backupEnabled !== undefined) updateRouterData.backupEnabled = data.backupEnabled;
     if (data.metadata !== undefined) updateRouterData.metadata = data.metadata;
 

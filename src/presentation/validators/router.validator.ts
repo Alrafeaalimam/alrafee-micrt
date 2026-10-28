@@ -32,6 +32,11 @@ export const createRouterSchema = z.object({
     .optional(),
   certificateFingerprint: z.string().optional(),
   backupEnabled: z.boolean().optional(),
+  status: z.enum(['ONLINE', 'OFFLINE', 'UNREACHABLE', 'CONNECTING', 'ERROR', 'MAINTENANCE']).optional(),
+  routerOsVersion: z.string().trim().optional(),
+  boardModel: z.string().trim().optional(),
+  cpuLoadPercentage: z.number().int().min(0).max(100).optional(),
+  uptimeSeconds: z.number().int().min(0).optional(),
 });
 
 export type CreateRouterBody = z.infer<typeof createRouterSchema>;
@@ -47,6 +52,12 @@ export const updateRouterSchema = z.object({
     .optional(),
   certificateFingerprint: z.string().optional(),
   backupEnabled: z.boolean().optional(),
+  status: z.enum(['ONLINE', 'OFFLINE', 'UNREACHABLE', 'CONNECTING', 'ERROR', 'MAINTENANCE']).optional(),
+  routerOsVersion: z.string().trim().optional(),
+  boardModel: z.string().trim().optional(),
+  cpuLoadPercentage: z.number().int().min(0).max(100).optional(),
+  uptimeSeconds: z.number().int().min(0).optional(),
+  lastErrorMessage: z.string().nullable().optional(),
 });
 
 export type UpdateRouterBody = z.infer<typeof updateRouterSchema>;

@@ -215,6 +215,69 @@ describe('Router Endpoints & Diagnostic Integration Tests', () => {
       assert.doesNotMatch(res.body, /super_secret_router_pass_999/);
       assert.strictEqual(body.data[0].credentials?.encryptedPassword, undefined);
     });
+
+    it('should create a router with status ONLINE and persist it correctly', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/routers',
+        headers: { authorization: `Bearer ${token1}` },
+        payload: {
+          name: 'Online Branch Router',
+          host: '192.168.10.1',
+          port: 8728,
+          username: 'router_admin',
+          password: 'pass',
+          connectionMethod: 'ROUTEROS_API_PLAIN',
+          status: 'ONLINE',
+          routerOsVersion: '7.15.2',
+          boardModel: 'RB5009UG+S+IN',
+          cpuLoadPercentage: 12,
+          uptimeSeconds: 3600,
+        },
+      });
+
+      assert.strictEqual(res.statusCode, 201);
+      const body = JSON.parse(res.body);
+      assert.strictEqual(body.success, true);
+      assert.strictEqual(body.data.status, 'ONLINE');
+      assert.strictEqual(body.data.boardModel, 'RB5009UG+S+IN');
+      assert.strictEqual(body.data.routerOsVersion, '7.15.2');
+      assert.ok(body.data.lastSeenAt);
+
+      // Verify persistence via GET /api/v1/routers
+      const listRes = await app.inject({
+        method: 'GET',
+        url: '/api/v1/routers',
+        headers: { authorization: `Bearer ${token1}` },
+      });
+      assert.strictEqual(listRes.statusCode, 200);
+      const listBody = JSON.parse(listRes.body);
+      const found = listBody.data.find((r: any) => r.id === body.data.id);
+      assert.ok(found);
+      assert.strictEqual(found.status, 'ONLINE');
+      assert.strictEqual(found.boardModel, 'RB5009UG+S+IN');
+    });
+
+    it('should create a router without status defaulting to OFFLINE', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/v1/routers',
+        headers: { authorization: `Bearer ${token1}` },
+        payload: {
+          name: 'Offline Default Router',
+          host: '192.168.20.1',
+          port: 8728,
+          username: 'router_admin',
+          password: 'pass',
+          connectionMethod: 'ROUTEROS_API_PLAIN',
+        },
+      });
+
+      assert.strictEqual(res.statusCode, 201);
+      const body = JSON.parse(res.body);
+      assert.strictEqual(body.success, true);
+      assert.strictEqual(body.data.status, 'OFFLINE');
+    });
   });
 
   // --------------------------------------------------------------------------

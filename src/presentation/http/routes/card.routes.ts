@@ -66,21 +66,30 @@ export const cardRoutes: FastifyPluginAsync = async (
     const parseResult = generateBatchSchema.safeParse(request.body);
 
     if (!parseResult.success) {
+      const fieldErrors = parseResult.error.flatten().fieldErrors;
+      const detailsStr = Object.entries(fieldErrors)
+        .map(([k, v]) => `${k}: ${v?.join(', ')}`)
+        .join(' | ');
       return reply.status(400).send({
         success: false,
         errorCode: 'VALIDATION_ERROR',
-        errorMessage: 'Invalid request payload',
-        details: parseResult.error.flatten().fieldErrors,
+        errorMessage: detailsStr ? `بيانات توليد الكروت غير صالحة (${detailsStr})` : 'بيانات توليد الكروت غير صالحة',
+        details: fieldErrors,
       });
     }
 
     try {
       const { tenantId, userId } = request.user!;
+      const { routerId, prefix, ...rest } = parseResult.data;
+      const cleanRouterId = routerId && routerId.trim().length > 0 ? routerId.trim() : undefined;
+      const cleanPrefix = prefix && prefix.trim().length > 0 ? prefix.trim() : undefined;
 
       const result = await generateCardBatchUseCase.execute({
         tenantId,
         createdById: userId,
-        ...parseResult.data,
+        routerId: cleanRouterId,
+        prefix: cleanPrefix,
+        ...rest,
       });
 
       return reply.status(201).send({
