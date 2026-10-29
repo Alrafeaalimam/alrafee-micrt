@@ -242,14 +242,14 @@ describe('Safe Package Deletion & Error Handling Unit Tests', () => {
   // --------------------------------------------------------------------------
   it('3. handlePrismaOrServerError should map PackageInUseException to HTTP 409 with clear Arabic message', () => {
     const reply = new MockFastifyReply();
-    const exception = new PackageInUseException('لا يمكن حذف باقة مرتبطة بكروت، يمكنك تعطيلها', 10, 1);
+    const exception = new PackageInUseException('لا يمكن حذف باقة مرتبطة بكروت أو دفعات سابقة', 10, 1);
 
     handlePrismaOrServerError(exception, reply as any, mockLogger);
 
     assert.strictEqual(reply.statusCode, 409);
     assert.strictEqual(reply.sentPayload.success, false);
     assert.strictEqual(reply.sentPayload.errorCode, 'PACKAGE_IN_USE');
-    assert.strictEqual(reply.sentPayload.errorMessage, 'لا يمكن حذف باقة مرتبطة بكروت، يمكنك تعطيلها');
+    assert.strictEqual(reply.sentPayload.errorMessage, 'لا يمكن حذف باقة مرتبطة بكروت أو دفعات سابقة');
     assert.strictEqual(reply.sentPayload.details.cardsCount, 10);
   });
 
@@ -267,7 +267,7 @@ describe('Safe Package Deletion & Error Handling Unit Tests', () => {
     assert.strictEqual(reply.statusCode, 409);
     assert.strictEqual(reply.sentPayload.success, false);
     assert.strictEqual(reply.sentPayload.errorCode, 'PACKAGE_IN_USE');
-    assert.ok(reply.sentPayload.errorMessage.includes('لا يمكن حذف باقة'));
+    assert.strictEqual(reply.sentPayload.errorMessage, 'لا يمكن حذف باقة مرتبطة بكروت أو دفعات سابقة');
     // Ensure raw WASM or prisma error strings are NEVER exposed to user
     assert.strictEqual(String(reply.sentPayload.errorMessage).includes('WASM_ERROR'), false);
     assert.strictEqual(String(reply.sentPayload.errorMessage).includes('RestrictViolation'), false);

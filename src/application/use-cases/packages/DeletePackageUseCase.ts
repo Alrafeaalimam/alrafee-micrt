@@ -38,7 +38,7 @@ export class DeletePackageUseCase {
     const usage = await this.packageRepository.checkUsage(input.id, input.tenantId);
     if (usage.inUse) {
       throw new PackageInUseException(
-        'لا يمكن حذف باقة مرتبطة بكروت، يمكنك تعطيلها',
+        'لا يمكن حذف باقة مرتبطة بكروت أو دفعات سابقة',
         usage.cardsCount,
         usage.batchesCount
       );

@@ -34,7 +34,7 @@ export function handlePrismaOrServerError(
     return reply.status(409).send({
       success: false,
       errorCode: 'PACKAGE_IN_USE',
-      errorMessage: err.message || 'لا يمكن حذف باقة مرتبطة بكروت، يمكنك تعطيلها',
+      errorMessage: err.message || 'لا يمكن حذف باقة مرتبطة بكروت أو دفعات سابقة',
       details: {
         cardsCount: err.cardsCount ?? 0,
         batchesCount: err.batchesCount ?? 0,
@@ -53,7 +53,7 @@ export function handlePrismaOrServerError(
     return reply.status(409).send({
       success: false,
       errorCode: 'PACKAGE_IN_USE',
-      errorMessage: 'لا يمكن حذف باقة مرتبطة بكروت، يمكنك تعطيلها',
+      errorMessage: 'لا يمكن حذف باقة مرتبطة بكروت أو دفعات سابقة',
     });
   }
 

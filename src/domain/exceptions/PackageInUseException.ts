@@ -8,7 +8,7 @@ import { ConflictException } from './ConflictException.js';
 
 export class PackageInUseException extends ConflictException {
   constructor(
-    message: string = 'لا يمكن حذف باقة مرتبطة بكروت، يمكنك تعطيلها',
+    message: string = 'لا يمكن حذف باقة مرتبطة بكروت أو دفعات سابقة',
     public readonly cardsCount: number = 0,
     public readonly batchesCount: number = 0
   ) {

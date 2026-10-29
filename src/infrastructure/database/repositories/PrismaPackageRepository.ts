@@ -138,7 +138,7 @@ export class PrismaPackageRepository implements IPackageRepository {
         errStr.includes('violates foreign key') ||
         errCode === 'P2003'
       ) {
-        throw new PackageInUseException('لا يمكن حذف باقة مرتبطة بكروت، يمكنك تعطيلها');
+        throw new PackageInUseException('لا يمكن حذف باقة مرتبطة بكروت أو دفعات سابقة');
       }
       throw err;
     }
