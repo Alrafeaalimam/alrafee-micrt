@@ -314,4 +314,23 @@ describe('Safe Package Deletion & Error Handling Unit Tests', () => {
     assert.strictEqual(reply.sentPayload.errorCode, 'PACKAGE_NOT_FOUND');
     assert.strictEqual(reply.sentPayload.errorMessage, 'باقة الكروت غير موجودة');
   });
+
+  // --------------------------------------------------------------------------
+  // P2002 Unique Constraint Preserves Exact Target/Main Contract
+  // --------------------------------------------------------------------------
+  it('7. handlePrismaOrServerError preserves exact HTTP 409, PACKAGE_CODE_EXISTS and original message on P2002', () => {
+    const reply = new MockFastifyReply();
+    const p2002Error: any = new Error('Unique constraint failed on the fields: (`tenantId`,`code`)');
+    p2002Error.code = 'P2002';
+
+    handlePrismaOrServerError(p2002Error, reply as any, mockLogger);
+
+    assert.strictEqual(reply.statusCode, 409);
+    assert.strictEqual(reply.sentPayload.success, false);
+    assert.strictEqual(reply.sentPayload.errorCode, 'PACKAGE_CODE_EXISTS');
+    assert.strictEqual(
+      reply.sentPayload.errorMessage,
+      'A package with this code already exists for this tenant'
+    );
+  });
 });

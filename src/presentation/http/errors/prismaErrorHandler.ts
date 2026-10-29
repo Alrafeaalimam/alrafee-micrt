@@ -66,12 +66,12 @@ export function handlePrismaOrServerError(
     });
   }
 
-  // 4. Unique constraint violation (P2002)
+  // 4. Unique constraint violation (P2002) - Exactly preserves original target/main contract
   if (errCode === 'P2002' || errStr.includes('Unique constraint')) {
     return reply.status(409).send({
       success: false,
       errorCode: 'PACKAGE_CODE_EXISTS',
-      errorMessage: 'توجد باقة مسجلة بنفس الكود مسبقاً لهذا العميل',
+      errorMessage: 'A package with this code already exists for this tenant',
     });
   }
 
